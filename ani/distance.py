@@ -17,3 +17,44 @@ def atom_distances(positions, neighbors, cell, offsets, mask):
     tmp_distances[mask != 0] = distances[mask != 0]
     distances = tmp_distances
     return distances
+
+
+def triple_distances(positions,neighbors_j,neighbors_k,offsets_j,offsets_k,cell,offsets,mask_triples):
+    n_batch, n_atoms, n_nbh, _ = offsets.size()
+    n_pairs = offsets_j.size()[2]
+
+    offsets = offsets.view(n_batch, -1, 3).bmm(cell)
+    offsets = offsets.view(-1, n_nbh, 3)
+
+    offsets_j = offsets_j.view(-1, n_pairs)
+    offsets_k = offsets_k.view(-1, n_pairs)
+
+    idx_offset_m = torch.arange(n_batch * n_atoms)[:, None]
+    offsets_j = offsets[idx_offset_m, offsets_j[:]].view(n_batch, n_atoms, n_pairs, 3)
+    offsets_k = offsets[idx_offset_m, offsets_k[:]].view(n_batch, n_atoms, n_pairs, 3)
+
+    idx_m = torch.arange(n_batch)[:, None, None]
+    pos_j = positions[idx_m, neighbors_j] + offsets_j
+    pos_k = positions[idx_m, neighbors_k] + offsets_k
+
+    R_ij = pos_j - positions[:, :, None, :]
+    R_ik = pos_k - positions[:, :, None, :]
+    R_jk = pos_j - pos_k
+
+    # + 1e-9 to avoid division by zero
+    r_ij = torch.norm(R_ij, 2, 3)
+    tmp = torch.zeros_like(r_ij)
+    tmp[mask_triples != 0] = r_ij[mask_triples != 0]
+    r_ij = tmp
+
+    r_ik = torch.norm(R_ij, 2, 3)
+    tmp = torch.zeros_like(r_ij)
+    tmp[mask_triples != 0] = r_ij[mask_triples != 0]
+    r_ik = tmp
+
+    r_jk = torch.norm(R_ij, 2, 3) + 1e-9
+    tmp = torch.zeros_like(r_ij)
+    tmp[mask_triples != 0] = r_ij[mask_triples != 0]
+    r_jk = tmp
+
+    return r_ij, r_ik, r_jk
