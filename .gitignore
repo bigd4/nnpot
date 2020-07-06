@@ -1,10 +1,10 @@
 # User defined
-#magus/test.py
-/test/
+
 .vscode
 .vs
 /tensorflow/
-
+/test/*
+!/test/*.py
 .idea/
 
 # Byte-compiled / optimized / DLL files

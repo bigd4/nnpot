@@ -1,4 +1,4 @@
-from torch.utils.data import Dataset,DataLoader
+from torch.utils.data import Dataset
 import torch
 import numpy as np
 
@@ -46,25 +46,7 @@ class AtomsData(Dataset):
     def __getitem__(self, i):
         if not self.datalist[i]:
             atoms = self.frames[i]
-            neighbors, offsets, mask = self.environment_provider.get_environment(atoms)
-            neighbors_j, neighbors_k, offsets_j, offsets_k, mask_triples = collect_atom_triples(neighbors)
-
-            self.datalist[i]['neighbors'] = torch.from_numpy(neighbors).long()
-            self.datalist[i]['neighbors_j'] = torch.from_numpy(neighbors_j).long()
-            self.datalist[i]['neighbors_k'] = torch.from_numpy(neighbors_k).long()
-            self.datalist[i]['offsets_j'] = torch.from_numpy(offsets_j).long()
-            self.datalist[i]['offsets_k'] = torch.from_numpy(offsets_k).long()
-            self.datalist[i]['offsets'] = torch.from_numpy(offsets).float()
-            self.datalist[i]['mask'] = torch.from_numpy(mask).float()
-            self.datalist[i]['mask_triples'] = torch.from_numpy(mask_triples).float()
-            self.datalist[i]['positions'] = torch.from_numpy(atoms.positions).float()
-            self.datalist[i]['positions'].requires_grad = True
-            self.datalist[i]['cell'] = torch.from_numpy(atoms.cell[:]).float()
-            self.datalist[i]['cell'].requires_grad = True
-            self.datalist[i]['energy'] = torch.tensor(atoms.info['energy']).float()
-            self.datalist[i]['forces'] = torch.tensor(atoms.info['forces']).float()
-            self.datalist[i]['stress'] = torch.tensor(atoms.info['stress']).float()
-            self.datalist[i]['scaling'] = torch.eye(3, requires_grad=True).float()
+            self.datalist[i] = get_dict(atoms, self.environment_provider)
         return self.datalist[i]
 
 
@@ -94,18 +76,24 @@ def _collate_aseatoms(examples):
             batch[prop][s] = val
     return batch
 
-if __name__ == '__main__':
-    from torch.utils.data import DataLoader
-    from ase.io import read
-    from environment import ASEEnvironment
-    frames = read('dataset.traj',':')
-    environment_provider = ASEEnvironment(3.0)
-    data = AtomsData(frames,environment_provider)
-    
-    dataloader = DataLoader(data, batch_size=8, shuffle=True,collate_fn=_collate_aseatoms)
-    for i_batch, batch_data in enumerate(dataloader):
-        print(i_batch)
-        print(batch_data['neighbors'].size())
-        print(batch_data['offset'].size())
-        print(batch_data['positions'].size())
-        print(batch_data['cell'].size())
+
+def get_dict(atoms, environment_provider):
+    neighbors, offsets, mask = environment_provider.get_environment(atoms)
+    neighbors_j, neighbors_k, offsets_j, offsets_k, mask_triples = collect_atom_triples(neighbors)
+    d = {
+        'neighbors': torch.from_numpy(neighbors).long(),
+        'neighbors_j': torch.from_numpy(neighbors_j).long(),
+        'neighbors_k': torch.from_numpy(neighbors_k).long(),
+        'offsets_j': torch.from_numpy(offsets_j).long(),
+        'offsets_k': torch.from_numpy(offsets_k).long(),
+        'offsets': torch.from_numpy(offsets).float(),
+        'mask': torch.from_numpy(mask).float(),
+        'mask_triples': torch.from_numpy(mask_triples).float(),
+        'positions': torch.tensor(atoms.positions, requires_grad=True).float(),
+        'cell': torch.tensor(atoms.cell[:], requires_grad=True).float(),
+        'energy': torch.tensor(atoms.info['energy']).float(),
+        'forces': torch.tensor(atoms.info['forces']).float(),
+        'stress': torch.tensor(atoms.info['stress']).float(),
+        'scaling': torch.eye(3, requires_grad=True).float(),
+    }
+    return d

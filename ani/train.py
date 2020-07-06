@@ -1,95 +1,82 @@
-from dataloader import AtomsData, _collate_aseatoms
-from torch.utils.data import DataLoader
-from ase.io import read
-from environment import ASEEnvironment
-from jjnet import ANI
 import torch
+import logging
 
 
-cutoff = 3.0
-w_energy = 1.0
-w_forces = 1.0
-w_stress = 1.0
-epoch = 10000
-frames = read('dataset.traj', ':')
-n_split = 130
-environment_provider = ASEEnvironment(cutoff)
-data = AtomsData(frames[:n_split], environment_provider)
-net = ANI()
-optimizer = torch.optim.Adam(net.parameters())
-loss_calculator = torch.nn.MSELoss()
-data_loader = DataLoader(data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
+def get_loss(model, loss_fn, batch_data, weight=[1.0, 1.0, 1.0], verbose=False):
+    w_energy, w_forces, w_stress = weight
+    predict_energy = model(batch_data)
+    predict_forces = -torch.autograd.grad(
+        predict_energy.sum(),
+        batch_data['positions'],
+        create_graph=True,
+        retain_graph=True
+    )[0]
+    predict_stress = torch.autograd.grad(
+        predict_energy.sum(),
+        batch_data['scaling'],
+        create_graph=True,
+        retain_graph=True
+    )[0][:, [0, 1, 2, 1, 0, 0], [0, 1, 2, 2, 2, 1]] / batch_data['volume']
+
+    target_energy = batch_data['energy']
+    target_forces = batch_data['forces']
+    target_stress = batch_data['stress']
+    energy_loss = loss_fn(predict_energy, target_energy)
+    force_loss = loss_fn(predict_forces, target_forces)
+    stress_loss = loss_fn(predict_stress, target_stress)
+
+    loss = w_energy * energy_loss + w_forces * force_loss + w_stress * stress_loss
+    if verbose:
+        return loss, energy_loss, force_loss, stress_loss
+    return loss
 
 
-###########################
-test_data = AtomsData(frames[n_split:], environment_provider)
-test_loader = DataLoader(test_data, batch_size=128, shuffle=True, collate_fn=_collate_aseatoms)
-###########################
-import numpy as np
-l1,l2,l3,l4 = np.zeros([4,epoch])
-m_loss = 100
-for i in range(epoch):
-    for i_batch, batch_data in enumerate(data_loader):
-        predict_energy = net(batch_data)
-        predict_forces = -torch.autograd.grad(
-            predict_energy.sum(),
-            batch_data['positions'],
-            create_graph=True,
-            retain_graph=True
-        )[0]
-        predict_stress = torch.autograd.grad(
-            predict_energy.sum(),
-            batch_data['scaling'],
-            create_graph=True,
-            retain_graph=True
-        )[0][:,[0,1,2,1,0,0],[0,1,2,2,2,1]]/batch_data['volume']
+class Trainer:
+    def __init__(self, model, loss_fn, weight=[1.0, 1.0, 1.0]):
+        self.model = model
+        self.loss_fn = loss_fn
+        self.min_loss = 100
+        self.weight = weight
 
-        target_energy = batch_data['energy']
-        target_forces = batch_data['forces']
-        target_stress = batch_data['stress']
-        energy_loss = loss_calculator(predict_energy, target_energy)
-        force_loss = loss_calculator(predict_forces, target_forces)
-        stress_loss = loss_calculator(predict_stress, target_stress)
+    def get_loss(self, batch_data, verbose=False):
+        return get_loss(self.model, self.loss_fn, batch_data, self.weight, verbose)
 
-        loss = w_energy * energy_loss + w_forces * force_loss + w_stress * stress_loss
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        
-    for i_batch, batch_data in enumerate(test_loader):
-        predict_energy = net(batch_data)
-        predict_forces = -torch.autograd.grad(
-            predict_energy.sum(),
-            batch_data['positions'],
-            create_graph=True,
-            retain_graph=True
-        )[0]
-        predict_stress = torch.autograd.grad(
-            predict_energy.sum(),
-            batch_data['scaling'],
-            create_graph=True,
-            retain_graph=True
-        )[0][:,[0,1,2,1,0,0],[0,1,2,2,2,1]]/batch_data['volume']
+    def train(self, epoch, train_loader, test_loader, device):
+        self.model.to(device)
+        nn_parameters, hyper_parameters = [], []
+        for key, value in self.model.named_parameters():
+            if 'etas' in key or 'rss' in key:
+                hyper_parameters.append(value)
+            else:
+                nn_parameters.append(value)
 
-        target_energy = batch_data['energy']
-        target_forces = batch_data['forces']
-        target_stress = batch_data['stress']
-        energy_loss = loss_calculator(predict_energy, target_energy)
-        force_loss = loss_calculator(predict_forces, target_forces)
-        stress_loss = loss_calculator(predict_stress, target_stress)
+        nn_optimizer = torch.optim.Adam(nn_parameters)
+        hyper_optimizer = torch.optim.Adam(hyper_parameters)
 
-        loss = w_energy * energy_loss + w_forces * force_loss + w_stress * stress_loss
-        
-        print('loss:',loss)
-        print('energy_loss:',energy_loss)
-        print('force_loss:',force_loss)
-        print('stress_loss:',stress_loss)
-        l1[i] = loss
-        l2[i] = energy_loss
-        l3[i] = force_loss
-        l4[i] = stress_loss
-        np.savez('loss.npz',l=l1,e=l2,f=l3,s=l4)
-        if loss < m_loss:
-            m_loss = loss
-            torch.save(net.state_dict(), 'parameter.pkl')
+        for i in range(epoch):
+            if i % 5 == 0:
+                for i_batch, batch_data in enumerate(train_loader):
+                    batch_data = {k: v.to(device) for k, v in batch_data.items()}
+                    loss = self.get_loss(batch_data)
+                    hyper_optimizer.zero_grad()
+                    loss.backward()
+                    hyper_optimizer.step()
 
+            for i_batch, batch_data in enumerate(train_loader):
+                batch_data = {k: v.to(device) for k, v in batch_data.items()}
+                loss = self.get_loss(batch_data)
+                nn_optimizer.zero_grad()
+                loss.backward()
+                nn_optimizer.step()
+
+            for i_batch, batch_data in enumerate(test_loader):
+                batch_data = {k: v.to(device) for k, v in batch_data.items()}
+                loss, energy_loss, force_loss, stress_loss = \
+                    self.get_loss(batch_data, True)
+                logging.info('{}\t{}\t{}\t{}\t{}'.format(i, loss.cpu().detach().numpy(),
+                                                         energy_loss.cpu().detach().numpy(),
+                                                         force_loss.cpu().detach().numpy(),
+                                                         stress_loss.cpu().detach().numpy()))
+                if loss.cpu().detach().numpy() < self.min_loss:
+                    self.min_loss = loss.cpu().detach().numpy()
+                    torch.save(self.model.state_dict(), 'parameter.pkl')

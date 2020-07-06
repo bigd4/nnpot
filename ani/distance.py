@@ -16,6 +16,7 @@ def atom_distances(positions, neighbors, cell, offsets, mask):
     tmp_distances = torch.zeros_like(distances)
     tmp_distances[mask != 0] = distances[mask != 0]
     distances = tmp_distances
+
     return distances
 
 
@@ -47,14 +48,14 @@ def triple_distances(positions,neighbors_j,neighbors_k,offsets_j,offsets_k,cell,
     tmp[mask_triples != 0] = r_ij[mask_triples != 0]
     r_ij = tmp
 
-    r_ik = torch.norm(R_ij, 2, 3)
-    tmp = torch.zeros_like(r_ij)
-    tmp[mask_triples != 0] = r_ij[mask_triples != 0]
+    r_ik = torch.norm(R_ik, 2, 3)
+    tmp = torch.zeros_like(r_ik)
+    tmp[mask_triples != 0] = r_ik[mask_triples != 0]
     r_ik = tmp
 
-    r_jk = torch.norm(R_ij, 2, 3) + 1e-9
-    tmp = torch.zeros_like(r_ij)
-    tmp[mask_triples != 0] = r_ij[mask_triples != 0]
+    r_jk = torch.norm(R_jk, 2, 3)
+    tmp = torch.zeros_like(r_jk)
+    tmp[mask_triples != 0] = r_jk[mask_triples != 0]
     r_jk = tmp
 
     return r_ij, r_ik, r_jk
