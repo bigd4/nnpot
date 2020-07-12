@@ -15,7 +15,8 @@ class ANI(nn.Module):
 
     def forward(self, inputs):
         representation = self.representation(inputs)
-        f = self.bn(representation)
+        # f = self.bn(representation)
+        f = representation
         energy = torch.sum(self.layer(f), (1, 2))
         return energy
 
@@ -64,15 +65,15 @@ class Representation(nn.Module):
 class BehlerG1(nn.Module):
     def __init__(self, n_radius, cut_fn, etas=None, rss=None, train_para=True):
         super(BehlerG1, self).__init__()
-        if etas:
-            assert len(etas) == n_radius, "length of etas should be same as n_radius"
-        else:
+        if etas is None:
             etas = torch.rand(n_radius) + 0.5
-
-        if rss:
-            assert len(rss) == n_radius, "length of rss should be same as n_radius"
         else:
+            assert len(etas) == n_radius, "length of etas should be same as n_radius"
+
+        if rss is None:
             rss = torch.randn(n_radius)
+        else:
+            assert len(rss) == n_radius, "length of rss should be same as n_radius"
 
         if train_para:
             self.etas = nn.Parameter(etas)

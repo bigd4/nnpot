@@ -17,7 +17,7 @@ logging.basicConfig(filename='log.txt', level=logging.DEBUG,
 device = "cpu"
 cutoff = 3.0
 n_radius = 30
-n_angular = 10
+n_angular = 0
 
 net = ANI(n_radius, n_angular, cutoff)
 loss_calculator = torch.nn.MSELoss()
