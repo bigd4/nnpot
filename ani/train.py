@@ -43,24 +43,24 @@ class Trainer:
 
     def train(self, epoch, train_loader, test_loader, device):
         self.model.to(device)
-        nn_parameters, hyper_parameters = [], []
+        nn_parameters, descriptor_parameters = [], []
         for key, value in self.model.named_parameters():
             if 'etas' in key or 'rss' in key:
-                hyper_parameters.append(value)
+                descriptor_parameters.append(value)
             else:
                 nn_parameters.append(value)
 
         nn_optimizer = torch.optim.Adam(nn_parameters)
-        hyper_optimizer = torch.optim.Adam(hyper_parameters)
+        descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
         for i in range(epoch):
             if i % 5 == 0:
                 for i_batch, batch_data in enumerate(train_loader):
                     batch_data = {k: v.to(device) for k, v in batch_data.items()}
                     loss = self.get_loss(batch_data)
-                    hyper_optimizer.zero_grad()
+                    descriptor_optimizer.zero_grad()
                     loss.backward()
-                    hyper_optimizer.step()
+                    descriptor_optimizer.step()
 
             for i_batch, batch_data in enumerate(train_loader):
                 batch_data = {k: v.to(device) for k, v in batch_data.items()}

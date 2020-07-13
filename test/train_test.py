@@ -31,5 +31,5 @@ train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_co
 test_data = AtomsData(frames[n_split:], environment_provider)
 test_loader = DataLoader(test_data, batch_size=128, shuffle=True, collate_fn=_collate_aseatoms)
 
-epoch = 10
+epoch = 100
 trainer.train(epoch, train_loader, test_loader, device)

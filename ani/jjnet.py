@@ -42,22 +42,21 @@ class Representation(nn.Module):
             cell[:, 0] * torch.cross(cell[:, 1], cell[:, 2]), dim=1, keepdim=True
         )
 
-        neighbors_j = inputs['neighbors_j']
-        neighbors_k = inputs['neighbors_k']
-        mask_triples = inputs['mask_triples']
-        offsets_j = inputs['offsets_j']
-        offsets_k = inputs['offsets_k']
-
         # Compute triple distances
         distances = atom_distances(positions, neighbors, cell, offsets, mask)
         radius_representation = self.RDF(distances, mask)
-
-        r_ij, r_ik, r_jk = triple_distances(
-            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
-
-        angular_representation = self.ADF(r_ij, r_ik, r_jk, mask_triples)
-
-        representation = torch.cat((radius_representation, angular_representation), 2)
+        if self.ADF.dimension == 0:
+            neighbors_j = inputs['neighbors_j']
+            neighbors_k = inputs['neighbors_k']
+            mask_triples = inputs['mask_triples']
+            offsets_j = inputs['offsets_j']
+            offsets_k = inputs['offsets_k']
+            r_ij, r_ik, r_jk = triple_distances(
+                positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
+            angular_representation = self.ADF(r_ij, r_ik, r_jk, mask_triples)
+            representation = torch.cat((radius_representation, angular_representation), 2)
+        else:
+            representation = radius_representation
         return representation
 
 
