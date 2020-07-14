@@ -45,7 +45,7 @@ class Representation(nn.Module):
         # Compute triple distances
         distances = atom_distances(positions, neighbors, cell, offsets, mask)
         radius_representation = self.RDF(distances, mask)
-        if self.ADF.dimension == 0:
+        if self.ADF.dimension > 0:
             neighbors_j = inputs['neighbors_j']
             neighbors_k = inputs['neighbors_k']
             mask_triples = inputs['mask_triples']

@@ -91,9 +91,9 @@ def get_dict(atoms, environment_provider):
         'mask_triples': torch.from_numpy(mask_triples).float(),
         'positions': torch.tensor(atoms.positions, requires_grad=True).float(),
         'cell': torch.tensor(atoms.cell[:], requires_grad=True).float(),
-        'energy': torch.tensor(atoms.info['energy']).float(),
-        'forces': torch.tensor(atoms.info['forces']).float(),
-        'stress': torch.tensor(atoms.info['stress']).float(),
         'scaling': torch.eye(3, requires_grad=True).float(),
     }
+    for key in ['energy','forces','stress']:
+        if key in atoms.info:
+            d[key] = torch.tensor(atoms.info[key]).float()
     return d
