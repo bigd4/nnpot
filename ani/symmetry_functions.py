@@ -1,64 +1,11 @@
 import torch
 import torch.nn as nn
-from .distance import atom_distances, triple_distances
-from .cutoff import CosineCutoff
+from ani.distance import atom_distances, triple_distances
 
 
-class ANI(nn.Module):
-    def __init__(self, n_radius, n_angular, cutoff):
-        super(ANI, self).__init__()
-        cut_fn = CosineCutoff(cutoff)
-        self.representation = Representation(n_radius, n_angular, cut_fn)
-        n_descriptor = self.representation.dimension
-        self.bn = nn.InstanceNorm1d(n_descriptor)
-        self.layer = nn.Linear(n_descriptor, 1)
-
-    def forward(self, inputs):
-        representation = self.representation(inputs)
-        # f = self.bn(representation)
-        f = representation
-        energy = torch.sum(self.layer(f), (1, 2))
-        return energy
-
-
-class Representation(nn.Module):
-    def __init__(self, n_radius, n_angular, cut_fn):
-        super(Representation, self).__init__()
-        self.RDF = BehlerG1(n_radius, cut_fn)
-        self.ADF = BehlerG3(n_angular, cut_fn)
-        self.dimension = self.RDF.dimension + self.ADF.dimension
-
-    def forward(self, inputs):
-        inputs['positions'] = torch.matmul(inputs['positions'], inputs['scaling'])
-        inputs['cell'] = torch.matmul(inputs['cell'], inputs['scaling'])
-
-        positions = inputs['positions']
-        neighbors = inputs['neighbors']
-        cell = inputs['cell']
-        offsets = inputs['offsets']
-        mask = inputs['mask']
-
-        inputs['volume'] = torch.sum(
-            cell[:, 0] * torch.cross(cell[:, 1], cell[:, 2]), dim=1, keepdim=True
-        )
-
-        # Compute triple distances
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
-        radius_representation = self.RDF(distances, mask)
-        if self.ADF.dimension > 0:
-            neighbors_j = inputs['neighbors_j']
-            neighbors_k = inputs['neighbors_k']
-            mask_triples = inputs['mask_triples']
-            offsets_j = inputs['offsets_j']
-            offsets_k = inputs['offsets_k']
-            r_ij, r_ik, r_jk = triple_distances(
-                positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
-            angular_representation = self.ADF(r_ij, r_ik, r_jk, mask_triples)
-            representation = torch.cat((radius_representation, angular_representation), 2)
-        else:
-            representation = radius_representation
-        return representation
-
+#TODO
+# 1. zernike
+# 2. deepmd
 
 # Generalized Neural-Network Representation of High-Dimensional Potential-Energy Surfaces
 class BehlerG1(nn.Module):
@@ -83,16 +30,22 @@ class BehlerG1(nn.Module):
         self.cut_fn = cut_fn
         self.dimension = n_radius
 
-    def forward(self, r_ij, mask):
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        offsets = inputs['offsets']
+        mask = inputs['mask']
+        distances = atom_distances(positions, neighbors, cell, offsets, mask)
         x = -self.etas[None, None, None, :] * \
-            (r_ij[:, :, :, None] - self.rss[None, None, None, :]) ** 2
-        cut = self.cut_fn(r_ij).unsqueeze(-1)
+            (distances[:, :, :, None] - self.rss[None, None, None, :]) ** 2
+        cut = self.cut_fn(distances).unsqueeze(-1)
         f = torch.exp(x) * cut * mask.unsqueeze(-1)
-        f = torch.sum(f, 2).view(r_ij.size()[0], r_ij.size()[1], -1)
+        f = torch.sum(f, 2).view(distances.size()[0], distances.size()[1], -1)
         return f
 
 
-# TODO should train zetas?
+# TODO should train zetas? should distance be saved?
 class BehlerG2(nn.Module):
     def __init__(self, n_angular, cut_fn, etas=None, zetas=[1], train_para=True):
         super(BehlerG2, self).__init__()
@@ -108,7 +61,17 @@ class BehlerG2(nn.Module):
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
 
-    def forward(self, r_ij, r_ik, r_jk, mask_triples):
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors_j = inputs['neighbors_j']
+        neighbors_k = inputs['neighbors_k']
+        mask_triples = inputs['mask_triples']
+        offsets = inputs['offsets']
+        offsets_j = inputs['offsets_j']
+        offsets_k = inputs['offsets_k']
+        r_ij, r_ik, r_jk = triple_distances(
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
 
         x = -self.etas[None, None, None, :] * \
             (r_ij ** 2 + r_ik ** 2 + r_jk ** 2)[..., None]
@@ -146,7 +109,17 @@ class BehlerG3(nn.Module):
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
 
-    def forward(self, r_ij, r_ik, r_jk, mask_triples):
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors_j = inputs['neighbors_j']
+        neighbors_k = inputs['neighbors_k']
+        mask_triples = inputs['mask_triples']
+        offsets = inputs['offsets']
+        offsets_j = inputs['offsets_j']
+        offsets_k = inputs['offsets_k']
+        r_ij, r_ik, r_jk = triple_distances(
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
 
         x = -self.etas[None, None, None, :] * \
             (r_ij ** 2 + r_ik ** 2)[..., None]
@@ -169,3 +142,18 @@ class BehlerG3(nn.Module):
         f = radius_part.unsqueeze(-1) * angular_part.unsqueeze(-2)
         f = torch.sum(f, 2).view(r_ij.size()[0], r_ij.size()[1], -1)
         return f
+
+
+class CombinationRepresentation(nn.Module):
+    def __init__(self, *functions):
+        super(CombinationRepresentation, self).__init__()
+        self.functions = nn.ModuleList(functions)
+        self.dimension = sum([f.dimension for f in self.functions])
+        self.mean = torch.tensor([0.])
+        self.std = torch.tensor([1.])
+
+    def forward(self, inputs):
+        x = []
+        for f in self.functions:
+            x.append(f(inputs))
+        return (torch.cat(x, dim=2) - self.mean) / self.std
