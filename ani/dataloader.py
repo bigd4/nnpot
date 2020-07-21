@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 import torch
 import numpy as np
+import copy
 
 
 def collect_atom_triples(nbh_idx):
@@ -35,13 +36,17 @@ def collect_atom_triples(nbh_idx):
 
 
 class AtomsData(Dataset):
-    def __init__(self,frames,environment_provider):
+    def __init__(self, frames, environment_provider):
         self.frames = frames
         self.environment_provider = environment_provider
         self.datalist = [{} for _ in range(len(frames))]
 
     def __len__(self):
         return len(self.frames)
+
+    def extend(self, frames):
+        self.frames.extend(frames)
+        self.datalist.extend([{} for _ in range(len(frames))])
 
     def __getitem__(self, i):
         if not self.datalist[i]:

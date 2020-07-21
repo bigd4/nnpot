@@ -1,18 +1,51 @@
 import torch
 import torch.nn as nn
-from ani.dataloader import convert_frames
+from torch.utils.data import DataLoader
+from ani.dataloader import convert_frames, AtomsData, _collate_aseatoms
+from ani.utils import get_loss
 import numpy as np
 
+
+# 'update_dataset' and 'train' are api for Magus
 class ANI(nn.Module):
-    def __init__(self, representation):
+    def __init__(self, representation, environment_provider):
         super(ANI, self).__init__()
         self.representation = representation
+        self.dataset = AtomsData([], environment_provider)
         n_descriptor = self.representation.dimension
         self.layer = nn.Linear(n_descriptor, 1)
+        nn_parameters, descriptor_parameters = [], []
+        for key, value in self.named_parameters():
+            if 'representation' in key:
+                descriptor_parameters.append(value)
+            else:
+                nn_parameters.append(value)
+        self.nn_optimizer = torch.optim.Adam(nn_parameters)
+        self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
     def set_statistics(self, mean, std):
         self.representation.mean = torch.tensor(mean).float()
         self.representation.std = torch.tensor(std + 1e-9).float()
+
+    def update_dataset(self, frames):
+        self.dataset.extend(frames)
+
+    def train(self, epoch=1000):
+        train_loader = DataLoader(self.dataset, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
+        for i in range(epoch):
+            # optimize descriptor parameters
+            if i % 5 == 0:
+                for i_batch, batch_data in enumerate(train_loader):
+                    loss = get_loss(self, batch_data)
+                    self.descriptor_optimizer.zero_grad()
+                    loss.backward()
+                    self.descriptor_optimizer.step()
+
+            for i_batch, batch_data in enumerate(train_loader):
+                loss = get_loss(self, batch_data)
+                self.nn_optimizer.zero_grad()
+                loss.backward()
+                self.nn_optimizer.step()
 
     def get_energies(self, inputs):
         representation = self.representation(inputs)
@@ -64,13 +97,14 @@ class GPR(nn.Module):
         self.frames = []
         self.standardize = standardize
         self.environment_provider = environment_provider
+        self.optimizer = torch.optim.Adam(self.parameters())
 
     @property
     def X(self):
         if self.standardize:
-            return torch.tensor((self.X_array-self.mean)/self.std)
+            return (self.X_array-self.mean)/self.std
         else:
-            return torch.tensor(self.X_array)
+            return self.X_array
 
     def update_dataset(self, frames):
         self.frames.extend(frames)
@@ -88,12 +122,11 @@ class GPR(nn.Module):
         self.std = torch.std(self.X_array, 0) + 1e-9
 
     def train(self, epoch):
-        optimizer = torch.optim.Adam(self.parameters())
         for i in range(epoch):
             loss = self.compute_log_likelihood()
-            optimizer.zero_grad()
+            self.optimizer.zero_grad()
             loss.backward()
-            optimizer.step()
+            self.optimizer.step()
             if i % 500 == 0:
                 print(i, ':', loss.item())
 
