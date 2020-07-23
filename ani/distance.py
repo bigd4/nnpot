@@ -1,4 +1,5 @@
 import torch
+from ase.data import atomic_numbers
 
 
 def atom_distances(positions, neighbors, cell, offsets, mask):
@@ -20,7 +21,9 @@ def atom_distances(positions, neighbors, cell, offsets, mask):
     return distances
 
 
-def triple_distances(positions,neighbors_j,neighbors_k,offsets_j,offsets_k,cell,offsets,mask_triples):
+def triple_distances(
+        positions, neighbors_j, neighbors_k, offsets_j, offsets_k,
+        cell, offsets, mask_triples):
     n_batch, n_atoms, n_nbh, _ = offsets.size()
     n_pairs = offsets_j.size()[2]
 
@@ -59,3 +62,10 @@ def triple_distances(positions,neighbors_j,neighbors_k,offsets_j,offsets_k,cell,
     r_jk = tmp
 
     return r_ij, r_ik, r_jk
+
+
+def neighbor_elements(atomic_numbers, neighbors):
+    n_batch = atomic_numbers.size()[0]
+    idx_m = torch.arange(n_batch)[:, None, None]
+    neighbor_numbers = atomic_numbers[idx_m, neighbors[:, :, :]]
+    return neighbor_numbers

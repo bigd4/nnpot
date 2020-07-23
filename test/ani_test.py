@@ -22,8 +22,8 @@ rdf = BehlerG1(n_radius, cut_fn)
 representation = CombinationRepresentation(rdf)
 model = ANI(representation, environment_provider)
 # model.load_state_dict(torch.load('parameter-new.pkl'))
-frames = read('stress.traj', ':')
-n_split = 120
+frames = read('initpop1.traj', ':')
+n_split = 35
 
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)

@@ -23,7 +23,7 @@ rdf = BehlerG1(n_radius, cut_fn)
 
 representation = CombinationRepresentation(rdf)
 model = ANI(representation, environment_provider)
-frames = read('stress.traj', ':')
+frames = read('initpop1.traj', ':')
 n_split = 120
 
 kern = RBF(dimension=30)
@@ -33,7 +33,7 @@ train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_co
 test_data = AtomsData(frames[n_split:], environment_provider)
 test_loader = DataLoader(test_data, batch_size=128, shuffle=False, collate_fn=_collate_aseatoms)
 
-model.update_dataset(frames[:120])
+model.update_dataset(frames)
 model.train(1000)
-gprmodel.update_dataset(frames[:120])
+gprmodel.update_dataset(frames)
 gprmodel.train(30000)

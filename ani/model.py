@@ -123,6 +123,12 @@ class GPR(nn.Module):
         self.mean = torch.mean(self.X_array, 0)
         self.std = torch.std(self.X_array, 0) + 1e-9
 
+    def recompute_X_array(self):
+        tmp_list = convert_frames(self.frames, self.environment_provider)
+        self.X_array = self.representation(tmp_list).sum(1).detach()
+        self.mean = torch.mean(self.X_array, 0)
+        self.std = torch.std(self.X_array, 0) + 1e-9
+
     def train(self, epoch):
         for i in range(epoch):
             loss = self.compute_log_likelihood()
