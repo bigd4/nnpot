@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from ani.distance import atom_distances, triple_distances
+from ani.utils import PositiveParameter
 
 
 #TODO
@@ -24,6 +25,7 @@ class BehlerG1(nn.Module):
         if train_para:
             self.etas = nn.Parameter(etas)
             self.rss = nn.Parameter(rss)
+            # self.etas = PositiveParameter(etas)
         else:
             self.register_buffer("etas", etas)
             self.register_buffer("rss", rss)
@@ -54,6 +56,7 @@ class BehlerG2(nn.Module):
 
         if train_para:
             self.etas = nn.Parameter(etas)
+            # self.etas = PositiveParameter(etas)
         else:
             self.register_buffer("etas", etas)
 
@@ -102,6 +105,7 @@ class BehlerG3(nn.Module):
 
         if train_para:
             self.etas = nn.Parameter(etas)
+            # self.etas = PositiveParameter(etas)
         else:
             self.register_buffer("etas", etas)
 

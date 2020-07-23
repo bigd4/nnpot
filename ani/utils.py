@@ -1,5 +1,5 @@
 import torch
-
+import torch.nn as nn
 
 def get_loss(model, batch_data, loss_fn=torch.nn.MSELoss(),  weight=[1.0, 1.0, 1.0], verbose=False):
     w_energy, w_forces, w_stress = weight
@@ -16,3 +16,9 @@ def get_loss(model, batch_data, loss_fn=torch.nn.MSELoss(),  weight=[1.0, 1.0, 1
     if verbose:
         return loss, energy_loss, force_loss, stress_loss
     return loss
+
+
+class PositiveParameter(nn.Parameter):
+    def get(self):
+        # return self.clamp(min=0)
+        return self.clamp(min=0) + torch.log(1 + torch.exp(self.clamp(max=0))) * 2

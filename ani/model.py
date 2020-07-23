@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from ani.dataloader import convert_frames, AtomsData, _collate_aseatoms
-from ani.utils import get_loss
+from ani.utils import get_loss, PositiveParameter
 import numpy as np
 
 
@@ -33,6 +33,7 @@ class ANI(nn.Module):
     def train(self, epoch=1000):
         train_loader = DataLoader(self.dataset, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
         for i in range(epoch):
+            print(i)
             # optimize descriptor parameters
             if i % 5 == 0:
                 for i_batch, batch_data in enumerate(train_loader):
@@ -71,7 +72,7 @@ class ANI(nn.Module):
         inputs['cell'] = torch.matmul(inputs['cell'], scaling)
         volume = torch.sum(
             inputs['cell'][:, 0] *
-            torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2]),
+            torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2], dim=-1),
             dim=1, keepdim=True
         )
         energies = self.get_energies(inputs)
@@ -93,7 +94,8 @@ class GPR(nn.Module):
         super(GPR, self).__init__()
         self.representation = representation
         self.kern = kern
-        self.lamb = nn.Parameter(torch.tensor(-10.))
+        # self.lamb = nn.Parameter(torch.tensor(-10.))
+        self.lamb = PositiveParameter(torch.tensor(-10.))
         self.frames = []
         self.standardize = standardize
         self.environment_provider = environment_provider
@@ -130,14 +132,16 @@ class GPR(nn.Module):
             if i % 500 == 0:
                 print(i, ':', loss.item())
 
-        lamb = torch.log(1 + torch.exp(self.lamb))
-        K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * lamb
+        # lamb = torch.log(1 + torch.exp(self.lamb))
+        # K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * lamb
+        K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
         self.L = torch.cholesky(K, upper=False)
         self.V, _ = torch.solve(self.y, self.L)
 
     def compute_log_likelihood(self):
-        lamb = torch.log(1 + torch.exp(self.lamb))
-        K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * lamb
+        # lamb = torch.log(1 + torch.exp(self.lamb))
+        # K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * lamb
+        K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
         L = torch.cholesky(K, upper=False)
         V, _ = torch.solve(self.y, L)
         V = V.squeeze(1)
@@ -178,7 +182,7 @@ class GPR(nn.Module):
         inputs['cell'] = torch.matmul(inputs['cell'], scaling)
         volume = torch.sum(
             inputs['cell'][:, 0] *
-            torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2]),
+            torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2], dim=-1),
             dim=1, keepdim=True
         )
         energies = self.get_energies(inputs)

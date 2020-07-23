@@ -25,7 +25,7 @@ model = GPR(representation, kern, environment_provider)
 a = read('stress.traj', ':')
 model.update_dataset(a[:120])
 model.train(30000)
-
+torch.save(model.state_dict(), 'parameter-gpr.pkl')
 
 loss_fn = torch.nn.MSELoss()
 batch_data = convert_frames(a[120:], environment_provider)

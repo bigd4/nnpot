@@ -15,16 +15,16 @@ device = "cpu"
 cutoff = 5.0
 n_radius = 30
 n_angular = 0
-
+environment_provider = ASEEnvironment(cutoff)
 cut_fn = CosineCutoff(cutoff)
 rdf = BehlerG1(n_radius, cut_fn)
 
 representation = CombinationRepresentation(rdf)
-model = ANI(representation)
-model.load_state_dict(torch.load('parameter-new.pkl'))
+model = ANI(representation, environment_provider)
+# model.load_state_dict(torch.load('parameter-new.pkl'))
 frames = read('stress.traj', ':')
 n_split = 120
-environment_provider = ASEEnvironment(cutoff)
+
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
 test_data = AtomsData(frames[n_split:], environment_provider)
@@ -58,7 +58,7 @@ for key, value in model.named_parameters():
 nn_optimizer = torch.optim.Adam(nn_parameters)
 descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
-epoch = 500
+epoch = 1000
 min_loss = 1000
 for i in range(epoch):
     # optimize descriptor parameters
