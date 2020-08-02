@@ -13,3 +13,11 @@ class CosineCutoff(nn.Module):
         cutoffs = 0.5 * (torch.cos(distances * np.pi / self.cutoff) + 1.0)
         cutoffs *= (distances < self.cutoff).float()
         return cutoffs
+
+
+def polynomial_cut(n):
+    coef = np.zeros(n+2)
+    coef[0] = 1
+    coef[n] = -n-1
+    coef[n+1] = n
+    return coef

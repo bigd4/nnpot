@@ -1,12 +1,29 @@
 import torch
 import torch.nn as nn
-from ani.distance import atom_distances, triple_distances
-from ani.utils import PositiveParameter
+from ani.distance import atom_distances, triple_distances, neighbor_elements
+from ani.utils import *
+import numpy as np
+
+
+class CombinationRepresentation(nn.Module):
+    def __init__(self, *functions):
+        super(CombinationRepresentation, self).__init__()
+        self.functions = nn.ModuleList(functions)
+        self.dimension = sum([f.dimension for f in self.functions])
+        self.mean = torch.tensor([0.])
+        self.std = torch.tensor([1.])
+
+    def forward(self, inputs):
+        x = []
+        for f in self.functions:
+            x.append(f(inputs))
+        return (torch.cat(x, dim=2) - self.mean) / self.std
 
 
 #TODO
 # 1. zernike
 # 2. deepmd
+# element embedding should be changed
 
 # Generalized Neural-Network Representation of High-Dimensional Potential-Energy Surfaces
 class BehlerG1(nn.Module):
@@ -32,17 +49,27 @@ class BehlerG1(nn.Module):
         self.cut_fn = cut_fn
         self.dimension = n_radius
 
+        self.z_Embedding = nn.Embedding(300, 1)
+        # self.z_Embedding.weight.data = torch.arange(300)[:, None]
+        # self.z_Embedding.weight.requires_grad = False
+
     def forward(self, inputs):
         positions = inputs['positions']
         cell = inputs['cell']
         neighbors = inputs['neighbors']
         offsets = inputs['offsets']
         mask = inputs['mask']
+        atomic_numbers = inputs['atomic_numbers']
+        z_ratio = self.z_Embedding(atomic_numbers)
+        z_ij = neighbor_elements(z_ratio, neighbors)
         distances = atom_distances(positions, neighbors, cell, offsets, mask)
         x = -self.etas[None, None, None, :] * \
             (distances[:, :, :, None] - self.rss[None, None, None, :]) ** 2
         cut = self.cut_fn(distances).unsqueeze(-1)
         f = torch.exp(x) * cut * mask.unsqueeze(-1)
+        # f: (n_batch, n_atoms, n_neigh, n_descriptor)
+        # z_ij: (n_batch, n_atoms, n_neigh, n_embedded)
+        f = f.unsqueeze(-1) * z_ij.unsqueeze(-2)
         f = torch.sum(f, 2).view(distances.size()[0], distances.size()[1], -1)
         return f
 
@@ -63,6 +90,9 @@ class BehlerG2(nn.Module):
         self.cut_fn = cut_fn
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
+        self.z_Embedding = nn.Embedding(300, 1)
+        self.z_Embedding.weight.data = torch.arange(300)[:, None]
+        self.z_Embedding.weight.requires_grad = False
 
     def forward(self, inputs):
         positions = inputs['positions']
@@ -73,6 +103,13 @@ class BehlerG2(nn.Module):
         offsets = inputs['offsets']
         offsets_j = inputs['offsets_j']
         offsets_k = inputs['offsets_k']
+        atomic_numbers = inputs['atomic_numbers']
+
+        z_ratio = self.z_Embedding(atomic_numbers)
+        z_ij = neighbor_elements(z_ratio, neighbors_j)
+        z_ik = neighbor_elements(z_ratio, neighbors_k)
+        z_ijk = z_ij * z_ik
+
         r_ij, r_ik, r_jk = triple_distances(
             positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
 
@@ -81,10 +118,8 @@ class BehlerG2(nn.Module):
         cut = self.cut_fn(r_ij) * self.cut_fn(r_ik) * self.cut_fn(r_jk)
         radius_part = torch.exp(x) * cut.unsqueeze(-1)
 
-        cos_theta = (r_ij ** 2 + r_ik ** 2 + r_jk ** 2) / (2.0 * r_ij * r_ik)
-        tmp = torch.zeros_like(cos_theta)
-        tmp[mask_triples != 0] = cos_theta[mask_triples != 0]
-        cos_theta = tmp
+        cos_theta = (r_ij ** 2 + r_ik ** 2 - r_jk ** 2) / (2.0 * r_ij * r_ik)
+        cos_theta[mask_triples == 0.0] = 0.0
 
         angular_pos = 2 ** (1 - self.zetas[None, None, None, :]) * \
                       ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
@@ -92,7 +127,14 @@ class BehlerG2(nn.Module):
                       ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
 
         angular_part = torch.cat((angular_pos, angular_neg), 3)
-        f = mask_triples[..., None, None] * radius_part.unsqueeze(-1) * angular_part.unsqueeze(-2)
+
+        angular_part[mask_triples == 0.0] = 0.0
+        radius_part[mask_triples == 0.0] = 0.0
+
+        f = radius_part.unsqueeze(-1) * angular_part.unsqueeze(-2)
+        # f: (n_batch, n_atoms, n_neigh, n_radius, n_angular)
+        # z_ijk: (n_batch, n_atoms, n_neigh, n_embedded)
+        f = f.unsqueeze(-1) * z_ijk.unsqueeze(-2).unsqueeze(-2)
         f = torch.sum(f, 2).view(r_ij.size()[0], r_ij.size()[1], -1)
         return f
 
@@ -112,6 +154,9 @@ class BehlerG3(nn.Module):
         self.cut_fn = cut_fn
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
+        self.z_Embedding = nn.Embedding(300, 1)
+        # self.z_Embedding.weight.data = torch.arange(300)[:, None]
+        # self.z_Embedding.weight.requires_grad = False
 
     def forward(self, inputs):
         positions = inputs['positions']
@@ -122,6 +167,13 @@ class BehlerG3(nn.Module):
         offsets = inputs['offsets']
         offsets_j = inputs['offsets_j']
         offsets_k = inputs['offsets_k']
+        atomic_numbers = inputs['atomic_numbers']
+
+        z_ratio = self.z_Embedding(atomic_numbers)
+        z_ij = neighbor_elements(z_ratio, neighbors_j)
+        z_ik = neighbor_elements(z_ratio, neighbors_k)
+        z_ijk = z_ij * z_ik
+
         r_ij, r_ik, r_jk = triple_distances(
             positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
 
@@ -144,20 +196,85 @@ class BehlerG3(nn.Module):
         radius_part[mask_triples == 0.0] = 0.0
 
         f = radius_part.unsqueeze(-1) * angular_part.unsqueeze(-2)
+        # f: (n_batch, n_atoms, n_neigh, n_radius, n_angular)
+        # z_ijk: (n_batch, n_atoms, n_neigh, n_embedded)
+        f = f.unsqueeze(-1) * z_ijk.unsqueeze(-2).unsqueeze(-2)
         f = torch.sum(f, 2).view(r_ij.size()[0], r_ij.size()[1], -1)
         return f
 
 
-class CombinationRepresentation(nn.Module):
-    def __init__(self, *functions):
-        super(CombinationRepresentation, self).__init__()
-        self.functions = nn.ModuleList(functions)
-        self.dimension = sum([f.dimension for f in self.functions])
-        self.mean = torch.tensor([0.])
-        self.std = torch.tensor([1.])
+class Zernike(nn.Module):
+    def __init__(self, elements, n_max, l_max=None, diag=False, cutoff=5., n_cut=2):
+        super(Zernike, self).__init__()
+        zernike_coef = torch.tensor(cut_zernike(n_max, n_cut)).float()
+        legendre_coef = torch.tensor(legendre(l_max)).float()
+        self.R_nl = Polynomial(zernike_coef)
+        self.P_l = Polynomial(legendre_coef)
+        self.n1, self.n2, self.l = get_zernike_combination(n_max, l_max, diag)
+        self.z_Embedding_i = OneHotEmbedding(elements)
+        self.z_Embedding_j = AtomicNumberEmbedding(elements)
+        self.dimension = len(self.n1) * len(elements)
+        self.cutoff = cutoff
 
     def forward(self, inputs):
-        x = []
-        for f in self.functions:
-            x.append(f(inputs))
-        return (torch.cat(x, dim=2) - self.mean) / self.std
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        neighbors_j = inputs['neighbors_j']
+        neighbors_k = inputs['neighbors_k']
+        mask = inputs['mask']
+        mask_triples = inputs['mask_triples']
+        offsets = inputs['offsets']
+        offsets_j = inputs['offsets_j']
+        offsets_k = inputs['offsets_k']
+        atomic_numbers = inputs['atomic_numbers']
+
+        z_i = self.z_Embedding_i(atomic_numbers)
+
+        z_ratio = self.z_Embedding_j(atomic_numbers)
+        z_ij = neighbor_elements(z_ratio, neighbors)
+        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+
+        radius_part = 2 * self.R_nl(distances/self.cutoff)[:, :, :, self.n1, self.l] * \
+                      self.R_nl(distances/self.cutoff)[:, :, :, self.n2, self.l]
+        radius_part[mask == 0.0] = 0.0
+        angular_part = self.P_l(torch.tensor(1.))[self.l].view(1, 1, 1, -1)
+        f1 = radius_part * angular_part
+        # f1: (n_batch, n_atoms, n_neigh, n_descriptor)
+        # z_ij: (n_batch, n_atoms, n_neigh, 1) for now
+        f1 = torch.sum(f1 * z_ij * z_ij, 2)
+
+        z_ratio = self.z_Embedding_j(atomic_numbers)
+        z_ij = neighbor_elements(z_ratio, neighbors_j)
+        z_ik = neighbor_elements(z_ratio, neighbors_k)
+        z_ijk = z_ij * z_ik
+        r_ij, r_ik, r_jk = triple_distances(
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
+
+        radius_part1 = self.R_nl(r_ij/self.cutoff)[:, :, :, self.n1, self.l] * \
+                       self.R_nl(r_ik/self.cutoff)[:, :, :, self.n2, self.l]
+        radius_part2 = self.R_nl(r_ik/self.cutoff)[:, :, :, self.n1, self.l] * \
+                       self.R_nl(r_ij/self.cutoff)[:, :, :, self.n2, self.l]
+
+        radius_part = radius_part1 + radius_part2
+        radius_part[mask_triples == 0.0] = 0.0 # (nb, na, nn, n, n', l)
+
+        cos_theta = (r_ij ** 2 + r_ik ** 2 - r_jk ** 2) / (2.0 * r_ij * r_ik)
+        cos_theta[mask_triples == 0.0] = 0.0
+
+        angular_part = self.P_l(cos_theta)[:, :, :, self.l]
+        angular_part[mask_triples == 0.0] = 0.0
+
+        f2 = radius_part * angular_part
+        # f2: (n_batch, n_atoms, n_neigh_pair, n_descriptor)
+        # z_ijk: (n_batch, n_atoms, n_neigh_pair, 1) for now
+        f2 = torch.sum(f2 * z_ijk, 2)
+
+        f = f1 + f2
+        # f: (n_batch, n_atoms, n_descriptor)
+        # z_i: (n_batch, n_atoms, max_element)
+        f = f.unsqueeze(-2) * z_i.unsqueeze(-1)
+
+        f = f.view(r_ij.size()[0], r_ij.size()[1], -1)
+        return f
+

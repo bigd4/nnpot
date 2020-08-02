@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import torch
 from ani.symmetry_functions import BehlerG1, CombinationRepresentation
 from ani.cutoff import CosineCutoff
+from ani.utils import get_loss
 import torch.nn as nn
 
 
@@ -23,10 +24,10 @@ rdf = BehlerG1(n_radius, cut_fn)
 
 representation = CombinationRepresentation(rdf)
 model = ANI(representation, environment_provider)
-frames = read('initpop1.traj', ':')
+frames = read('stress.traj', ':')
 n_split = 120
 
-kern = RBF(dimension=30)
+kern = RBF(dimension=representation.dimension)
 gprmodel = GPR(representation, kern, environment_provider)
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
@@ -35,5 +36,8 @@ test_loader = DataLoader(test_data, batch_size=128, shuffle=False, collate_fn=_c
 
 model.update_dataset(frames)
 model.train(1000)
-gprmodel.update_dataset(frames)
+gprmodel.update_dataset(frames[:120])
 gprmodel.train(30000)
+
+batch_data = convert_frames(frames[120:], environment_provider)
+print(get_loss(gprmodel, batch_data,verbose=True))

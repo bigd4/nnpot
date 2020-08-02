@@ -94,10 +94,9 @@ def get_dict(atoms, environment_provider):
         'offsets': torch.from_numpy(offsets).float(),
         'mask': torch.from_numpy(mask).float(),
         'mask_triples': torch.from_numpy(mask_triples).float(),
-        # 'positions': torch.tensor(atoms.positions).float(),
+        'positions': torch.tensor(atoms.positions).float(),
         'cell': torch.tensor(atoms.cell[:]).float(),
-        'positions': torch.tensor(atoms.positions, requires_grad=True).float(),
-        'scaling': torch.eye(3, requires_grad=True).float()
+        'atomic_numbers': torch.tensor(atoms.numbers).long(),
     }
 
     for key in ['energy', 'forces', 'stress']:

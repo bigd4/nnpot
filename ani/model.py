@@ -100,6 +100,7 @@ class GPR(nn.Module):
         self.standardize = standardize
         self.environment_provider = environment_provider
         self.optimizer = torch.optim.Adam(self.parameters())
+        self.optimizer2 = torch.optim.LBFGS(self.parameters(), lr=1e-3, max_iter=40)
 
     @property
     def X(self):
@@ -110,15 +111,19 @@ class GPR(nn.Module):
 
     def update_dataset(self, frames):
         self.frames.extend(frames)
-        tmp_list = convert_frames(frames, self.environment_provider)
-        descriptor = self.representation(tmp_list).sum(1).detach()
-        energies = tmp_list['energy'].unsqueeze(-1)
-        if hasattr(self, 'X_array'):
-            self.X_array = torch.cat((self.X_array, descriptor))
-            self.y = torch.cat((self.y, energies))
-        else:
-            self.X_array = descriptor
-            self.y = energies
+        # not enough memory: Buy new RAM! wdnmd
+        # tmp_list = convert_frames(frames, self.environment_provider)
+        data = AtomsData(frames, self.environment_provider)
+        data_loader = DataLoader(data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
+        for i_batch, batch_data in enumerate(data_loader):
+            descriptor = self.representation(batch_data).sum(1).detach()
+            energies = batch_data['energy'].unsqueeze(-1)
+            if hasattr(self, 'X_array'):
+                self.X_array = torch.cat((self.X_array, descriptor))
+                self.y = torch.cat((self.y, energies))
+            else:
+                self.X_array = descriptor
+                self.y = energies
 
         self.mean = torch.mean(self.X_array, 0)
         self.std = torch.std(self.X_array, 0) + 1e-9
@@ -130,16 +135,26 @@ class GPR(nn.Module):
         self.std = torch.std(self.X_array, 0) + 1e-9
 
     def train(self, epoch):
-        for i in range(epoch):
-            loss = self.compute_log_likelihood()
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            if i % 500 == 0:
-                print(i, ':', loss.item())
+        def eval_model():
+            likelihood = self.compute_log_likelihood()
+            self.optimizer2.zero_grad()
+            likelihood.backward()
+            return likelihood
 
-        # lamb = torch.log(1 + torch.exp(self.lamb))
-        # K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * lamb
+        for i in range(epoch):
+            likelihood = self.compute_log_likelihood()
+            self.optimizer2.zero_grad()
+            likelihood.backward()
+            self.optimizer2.step(eval_model)
+            if i % 5 == 0:
+                print(i, ':', likelihood.item())
+        # for i in range(epoch):
+        #     loss = self.compute_log_likelihood()
+        #     self.optimizer.zero_grad()
+        #     loss.backward()
+        #     self.optimizer.step()
+        #     if i % 500 == 0:
+        #         print(i, ':', loss.item())
         K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
         self.L = torch.cholesky(K, upper=False)
         self.V, _ = torch.solve(self.y, self.L)
@@ -165,8 +180,8 @@ class GPR(nn.Module):
         energies = torch.mm(A.t(), self.V).view(-1)
         if with_std:
             energies_var = self.kern.Kdiag(Xnew) - (A ** 2).sum(0)
-            energies_var = torch.sqrt(energies_var).view(-1)
-            return energies, energies_var
+            energies_std = torch.sqrt(energies_var).view(-1)
+            return energies, energies_std
         else:
             return energies
 
