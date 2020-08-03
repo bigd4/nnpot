@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from ani.utils import PositiveParameter
+from ani.utils import *
 
 
 class RBF(nn.Module):
@@ -9,7 +9,8 @@ class RBF(nn.Module):
         # self.lengthscales = nn.Parameter(torch.ones(dimension))
         # self.variance = nn.Parameter(torch.tensor(1.))
 
-        self.lengthscales = PositiveParameter(torch.ones(dimension))
+        # self.lengthscales = PositiveParameter(torch.ones(dimension))
+        self.lengthscales = BoundParameter(torch.ones(dimension), a=0.01, b=100.)
         self.variance = PositiveParameter(torch.tensor(1.))
 
     def K(self, a, b):

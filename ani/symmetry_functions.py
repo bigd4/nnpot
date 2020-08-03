@@ -21,9 +21,10 @@ class CombinationRepresentation(nn.Module):
 
 
 #TODO
-# 1. zernike
-# 2. deepmd
+# 1. zernike(try another form), SB descriptor and approximate SOAP
+# 2. deepmd(need element embedding), smooth deepmd
 # element embedding should be changed
+#
 
 # Generalized Neural-Network Representation of High-Dimensional Potential-Energy Surfaces
 class BehlerG1(nn.Module):
@@ -278,3 +279,101 @@ class Zernike(nn.Module):
         f = f.view(r_ij.size()[0], r_ij.size()[1], -1)
         return f
 
+
+class Deepmd_radius(nn.Module):
+    def __init__(self, n_radius, cut_fn):
+        super(Deepmd_radius, self).__init__()
+        self.cut_fn = cut_fn
+        self.dimension = n_radius
+
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        mask = inputs['mask']
+        offsets = inputs['offsets']
+        atomic_numbers = inputs['atomic_numbers']
+
+        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        cut = self.cut_fn(distances)
+        cut[mask == 0.0] = 0.0
+        f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
+        f[:, :, :distances.size()[2]] = cut
+        f = f.sort(dim=-1, descending=True)[0]
+
+        return f
+
+class Deepmd_radius(nn.Module):
+    def __init__(self, n_radius, cut_fn):
+        super(Deepmd_radius, self).__init__()
+        self.cut_fn = cut_fn
+        self.dimension = n_radius
+
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        mask = inputs['mask']
+        offsets = inputs['offsets']
+        atomic_numbers = inputs['atomic_numbers']
+
+        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        cut = self.cut_fn(distances)
+        cut[mask == 0.0] = 0.0
+        f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
+        f[:, :, :distances.size()[2]] = cut
+        f = f.sort(dim=-1, descending=True)[0]
+
+        return f
+
+
+class Deepmd_radius(nn.Module):
+    def __init__(self, n_radius, cut_fn):
+        super(Deepmd_radius, self).__init__()
+        self.cut_fn = cut_fn
+        self.dimension = n_radius
+
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        mask = inputs['mask']
+        offsets = inputs['offsets']
+        atomic_numbers = inputs['atomic_numbers']
+
+        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        cut = self.cut_fn(distances)
+        cut[mask == 0.0] = 0.0
+        cut = cut.sort(dim=-1, descending=True)[0]
+        f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
+        f[:, :, :distances.size()[2]] = cut
+        return f
+
+
+class Deepmd_angular(nn.Module):
+    def __init__(self, n_angular, cut_fn):
+        super(Deepmd_angular, self).__init__()
+        self.cut_fn = cut_fn
+        self.dimension = n_angular * 3
+
+    def forward(self, inputs):
+        positions = inputs['positions']
+        cell = inputs['cell']
+        neighbors = inputs['neighbors']
+        mask = inputs['mask']
+        offsets = inputs['offsets']
+        atomic_numbers = inputs['atomic_numbers']
+
+        distances, dis_vec = \
+            atom_distances(positions, neighbors, cell, offsets, mask, vec=True)
+        cut = self.cut_fn(distances) / distances
+        cut[mask == 0.0] = 0.0
+        sorted_index = cut.sort(dim=-1, descending=True)[1].unsqueeze(-1).expand_as(dis_vec)
+        # cut_vec: (nb, na, nn, 3)
+        # sorted_index: (nb, na, nn, 3) sort on the dim 2 (nn)
+        cut_vec = cut.unsqueeze(-1) * dis_vec
+        cut_vec = cut_vec.gather(2, sorted_index)
+        cut_vec = cut_vec.view(distances.size()[0], distances.size()[1], -1)
+        f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
+        f[:, :, :cut_vec.size()[2]] = cut_vec
+        return f

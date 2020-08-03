@@ -8,7 +8,7 @@ import numpy as np
 
 # 'update_dataset' and 'train' are api for Magus
 class ANI(nn.Module):
-    def __init__(self, representation, environment_provider):
+    def __init__(self, representation, environment_provider, train_descriptor=False):
         super(ANI, self).__init__()
         self.representation = representation
         self.dataset = AtomsData([], environment_provider)
@@ -21,7 +21,8 @@ class ANI(nn.Module):
             else:
                 nn_parameters.append(value)
         self.nn_optimizer = torch.optim.Adam(nn_parameters)
-        self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
+        if train_descriptor:
+            self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
     def set_statistics(self, mean, std):
         self.representation.mean = torch.tensor(mean).float()

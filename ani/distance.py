@@ -1,7 +1,8 @@
 import torch
 
 
-def atom_distances(positions, neighbors, cell, offsets, mask):
+# TODO add an invisible atom at end may get rid of mask
+def atom_distances(positions, neighbors, cell, offsets, mask, vec=False):
     n_batch, n_atoms, n_nbh = neighbors.size()
 
     offsets = offsets.view(n_batch, -1, 3).bmm(cell)
@@ -16,6 +17,9 @@ def atom_distances(positions, neighbors, cell, offsets, mask):
     tmp_distances = torch.zeros_like(distances)
     tmp_distances[mask != 0] = distances[mask != 0]
     distances = tmp_distances
+
+    if vec:
+        return distances, dist_vec
 
     return distances
 
