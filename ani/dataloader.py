@@ -4,25 +4,31 @@ import numpy as np
 import copy
 
 
+#TODO
+# new method collect atom triples(may convert to gpu)
+# rotate atoms for deepmd
+
 def collect_atom_triples(nbh_idx):
-    natoms, nneigh = nbh_idx.shape
+    n_atoms, n_neigh = nbh_idx.shape
+    if n_neigh == 1:
+        return np.zeros((5, n_atoms, 1,))
 
     # Construct possible permutations
-    nbh_idx_j = np.tile(nbh_idx, nneigh)
-    nbh_idx_k = np.repeat(nbh_idx, nneigh).reshape((natoms, -1))
+    nbh_idx_j = np.tile(nbh_idx, n_neigh)
+    nbh_idx_k = np.repeat(nbh_idx, n_neigh).reshape((n_atoms, -1))
 
     # Remove same interactions and non unique pairs
-    triu_idx_row, triu_idx_col = np.triu_indices(nneigh, k=1)
-    triu_idx_flat = triu_idx_row * nneigh + triu_idx_col
+    triu_idx_row, triu_idx_col = np.triu_indices(n_neigh, k=1)
+    triu_idx_flat = triu_idx_row * n_neigh + triu_idx_col
     nbh_idx_j = nbh_idx_j[:, triu_idx_flat]
     nbh_idx_k = nbh_idx_k[:, triu_idx_flat]
 
     # Keep track of periodic images
-    offset_idx = np.tile(np.arange(nneigh), (natoms, 1))
+    offset_idx = np.tile(np.arange(n_neigh), (n_atoms, 1))
 
     # Construct indices for pairs of offsets
-    offset_idx_j = np.tile(offset_idx, nneigh)
-    offset_idx_k = np.repeat(offset_idx, nneigh).reshape((natoms, -1))
+    offset_idx_j = np.tile(offset_idx, n_neigh)
+    offset_idx_k = np.repeat(offset_idx, n_neigh).reshape((n_atoms, -1))
 
     # Remove non-unique pairs and diagonal
     offset_idx_j = offset_idx_j[:, triu_idx_flat]

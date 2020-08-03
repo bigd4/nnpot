@@ -28,6 +28,28 @@ class PositiveParameter(nn.Parameter):
         return self.clamp(min=0) + torch.log(1 + torch.exp(self.clamp(max=0))) * 2
 
 
+class PositiveParameter(nn.Parameter):
+    def __new__(cls, data=None, requires_grad=True,a=0.):
+        new = super(PositiveParameter, cls).__new__(cls, data, requires_grad)
+        new.a = a
+        return new
+
+    def get(self):
+        return self.a + self.clamp(min=0) + torch.log(1 + torch.exp(self.clamp(max=0))) * 2
+
+
+class BoundParameter(nn.Parameter):
+    def __new__(cls, data=None, requires_grad=True, a=0., b=1.):
+        data = torch.log((data - a) / (b - data))
+        new = super(BoundParameter, cls).__new__(cls, data, requires_grad)
+        new.a = a
+        new.b = b
+        return new
+
+    def get(self):
+        return (self.b - self.a) * torch.sigmoid(self) + self.a
+
+
 def legendre(l_max):
     coef = np.zeros((l_max+1, l_max+1))
     for l in range(l_max+1):

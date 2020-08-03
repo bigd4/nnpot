@@ -6,11 +6,13 @@ from torch.utils.data import DataLoader
 from ani.kernel import RBF
 import torch
 from ani.utils import get_loss
-from ani.symmetry_functions import CombinationRepresentation, Zernike
+from ani.cutoff import *
+from ani.symmetry_functions import *
 
 
 device = "cpu"
-cutoff = 5.0
+cutoff1 = 4.8
+cutoff2 = 5.0
 
 frames = read('TiO2-new.traj', ':')
 n_split = int(0.8 * len(frames))
@@ -19,17 +21,17 @@ for atoms in frames:
     for ele in atoms:
         elements.append(ele.number)
 elements = tuple(set(elements))
-environment_provider = ASEEnvironment(cutoff)
-zer = Zernike(elements, 8, 8, False, cutoff)
-representation = CombinationRepresentation(zer)
+environment_provider = ASEEnvironment(cutoff2)
+cut_fn = SmoothCosineCutoff(cutoff1, cutoff2)
+# dpmd = Deepmd_radius(100, cut_fn)
+dpmd = Deepmd_angular(100, cut_fn)
+representation = CombinationRepresentation(dpmd)
 
-# batch_data = convert_frames(frames[:1], environment_provider)
-# d = representation(batch_data)
-#
-# # model = ANI(representation, environment_provider)
-# #
-# # # bb = convert_frames(frames[:1], environment_provider)
-# # # d = representation(bb)
+
+model = ANI(representation, environment_provider)
+
+bb = convert_frames(frames[:1], environment_provider)
+
 # # n_split = 120
 # #
 # # train_data = AtomsData(frames[:n_split], environment_provider)
