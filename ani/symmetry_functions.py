@@ -3,6 +3,7 @@ import torch.nn as nn
 from ani.distance import atom_distances, triple_distances, neighbor_elements
 from ani.utils import *
 import numpy as np
+import torch.nn.functional as F
 
 
 class CombinationRepresentation(nn.Module):
@@ -364,6 +365,7 @@ class Deepmd_angular(nn.Module):
         offsets = inputs['offsets']
         atomic_numbers = inputs['atomic_numbers']
 
+        nb, na, _ = positions.size()
         distances, dis_vec = \
             atom_distances(positions, neighbors, cell, offsets, mask, vec=True)
         cut = self.cut_fn(distances) / distances
@@ -371,7 +373,15 @@ class Deepmd_angular(nn.Module):
         sorted_index = cut.sort(dim=-1, descending=True)[1].unsqueeze(-1).expand_as(dis_vec)
         # cut_vec: (nb, na, nn, 3)
         # sorted_index: (nb, na, nn, 3) sort on the dim 2 (nn)
-        cut_vec = cut.unsqueeze(-1) * dis_vec
+
+        # rotate x,y,z to target coordinate
+        R_ia = dis_vec.gather(2, sorted_index)[:, :, 0]
+        R_ib = dis_vec.gather(2, sorted_index)[:, :, 1]
+        ex = F.normalize(R_ia, p=2, dim=2)
+        ey = F.normalize(torch.sum(R_ib * ex, 2, True) * ex, p=2, dim=2)
+        ez = torch.cross(ex, ey, dim=-1)
+        rotation_matrix = torch.cat((ex, ey, ez), -1).view(nb, na, 3, 3).permute(0, 1, 3, 2)
+        cut_vec = cut.unsqueeze(-1) * torch.matmul(dis_vec, rotation_matrix)
         cut_vec = cut_vec.gather(2, sorted_index)
         cut_vec = cut_vec.view(distances.size()[0], distances.size()[1], -1)
         f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
