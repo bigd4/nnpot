@@ -129,7 +129,7 @@ class Polynomial(nn.Module):
 
 
 class OneHotEmbedding(nn.Module):
-    def __init__(self, elements):
+    def __init__(self, elements, trainable=False):
         super(OneHotEmbedding, self).__init__()
         max_elements = max(elements)
         n_elements = len(elements)
@@ -138,18 +138,22 @@ class OneHotEmbedding(nn.Module):
             weights[Z, idx] = 1.
         self.z_weights = nn.Embedding(max_elements + 1, n_elements)
         self.z_weights.weight.data = weights
+        if not trainable:
+            self.z_weights.weight.requires_grad = False
 
     def forward(self, inputs):
         return self.z_weights(inputs)
 
 
 class AtomicNumberEmbedding(nn.Module):
-    def __init__(self, elements):
+    def __init__(self, elements, trainable=False):
         super(AtomicNumberEmbedding, self).__init__()
         max_elements = max(elements)
-        weights = torch.arange(max_elements + 1)[:, None]
+        weights = torch.arange(max_elements + 1)[:, None].float()
         self.z_weights = nn.Embedding(max_elements + 1, 1)
         self.z_weights.weight.data = weights
+        if not trainable:
+            self.z_weights.weight.requires_grad = False
 
     def forward(self, inputs):
         return self.z_weights(inputs)
