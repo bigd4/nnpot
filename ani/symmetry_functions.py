@@ -56,12 +56,13 @@ class BehlerG1(nn.Module):
         # self.z_Embedding.weight.requires_grad = False
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         offsets = inputs['offsets']
         mask = inputs['mask']
         atomic_numbers = inputs['atomic_numbers']
+
         z_ratio = self.z_Embedding(atomic_numbers)
         z_ij = neighbor_elements(z_ratio, neighbors)
         distances = atom_distances(positions, neighbors, cell, offsets, mask)
@@ -97,8 +98,8 @@ class BehlerG2(nn.Module):
         self.z_Embedding.weight.requires_grad = False
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
         mask_triples = inputs['mask_triples']
@@ -161,8 +162,8 @@ class BehlerG3(nn.Module):
         # self.z_Embedding.weight.requires_grad = False
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
         mask_triples = inputs['mask_triples']
@@ -219,8 +220,8 @@ class Zernike(nn.Module):
         self.cutoff = cutoff
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
@@ -288,8 +289,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -311,8 +312,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -335,8 +336,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -358,8 +359,8 @@ class Deepmd_angular(nn.Module):
         self.dimension = n_angular * 3
 
     def forward(self, inputs):
-        positions = inputs['positions']
-        cell = inputs['cell']
+        positions = torch.matmul(inputs['positions'], inputs['scaling'])
+        cell = torch.matmul(inputs['cell'], inputs['scaling'])
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -371,16 +372,18 @@ class Deepmd_angular(nn.Module):
         cut = self.cut_fn(distances) / distances
         cut[mask == 0.0] = 0.0
         sorted_index = cut.sort(dim=-1, descending=True)[1].unsqueeze(-1).expand_as(dis_vec)
-        # cut_vec: (nb, na, nn, 3)
-        # sorted_index: (nb, na, nn, 3) sort on the dim 2 (nn)
 
         # rotate x,y,z to target coordinate
         R_ia = dis_vec.gather(2, sorted_index)[:, :, 0]
         R_ib = dis_vec.gather(2, sorted_index)[:, :, 1]
         ex = F.normalize(R_ia, p=2, dim=2)
-        ey = F.normalize(torch.sum(R_ib * ex, 2, True) * ex, p=2, dim=2)
+        ey = F.normalize(R_ib - torch.sum(R_ib * ex, 2, True) * ex, p=2, dim=2)
         ez = torch.cross(ex, ey, dim=-1)
         rotation_matrix = torch.cat((ex, ey, ez), -1).view(nb, na, 3, 3).permute(0, 1, 3, 2)
+
+        # cut_vec: (nb, na, nn, 3)
+        # sorted_index: (nb, na, nn, 3) sort on the dim 2 (nn)
+        # cut_vec = cut.unsqueeze(-1) * dis_vec
         cut_vec = cut.unsqueeze(-1) * torch.matmul(dis_vec, rotation_matrix)
         cut_vec = cut_vec.gather(2, sorted_index)
         cut_vec = cut_vec.view(distances.size()[0], distances.size()[1], -1)

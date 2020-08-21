@@ -103,6 +103,7 @@ def get_dict(atoms, environment_provider):
         'positions': torch.tensor(atoms.positions).float(),
         'cell': torch.tensor(atoms.cell[:]).float(),
         'atomic_numbers': torch.tensor(atoms.numbers).long(),
+        'scaling': torch.eye(3).float(),
     }
 
     for key in ['energy', 'forces', 'stress']:

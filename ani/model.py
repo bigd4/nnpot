@@ -22,6 +22,7 @@ class ANI(nn.Module):
             else:
                 nn_parameters.append(value)
         self.nn_optimizer = torch.optim.Adam(nn_parameters)
+        self.train_descriptor = train_descriptor
         if train_descriptor:
             self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
@@ -37,12 +38,13 @@ class ANI(nn.Module):
         for i in range(epoch):
             print(i)
             # optimize descriptor parameters
-            if i % 5 == 0:
-                for i_batch, batch_data in enumerate(train_loader):
-                    loss = get_loss(self, batch_data)
-                    self.descriptor_optimizer.zero_grad()
-                    loss.backward()
-                    self.descriptor_optimizer.step()
+            if self.train_descriptor:
+                if i % 5 == 0:
+                    for i_batch, batch_data in enumerate(train_loader):
+                        loss = get_loss(self, batch_data)
+                        self.descriptor_optimizer.zero_grad()
+                        loss.backward()
+                        self.descriptor_optimizer.step()
 
             for i_batch, batch_data in enumerate(train_loader):
                 loss = get_loss(self, batch_data)
@@ -68,10 +70,7 @@ class ANI(nn.Module):
         return forces
 
     def get_stresses(self, inputs):
-        scaling = torch.eye(3, requires_grad=True).float().\
-            repeat((inputs['cell'].shape[0], 1, 1))
-        inputs['positions'] = torch.matmul(inputs['positions'], scaling)
-        inputs['cell'] = torch.matmul(inputs['cell'], scaling)
+        inputs['scaling'].requires_grad_()
         volume = torch.sum(
             inputs['cell'][:, 0] *
             torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2], dim=-1),
@@ -80,7 +79,7 @@ class ANI(nn.Module):
         energies = self.get_energies(inputs)
         stresses = torch.autograd.grad(
             energies.sum(),
-            scaling,
+            inputs['scaling'],
             create_graph=True,
             retain_graph=True
         )[0][:, [0, 1, 2, 1, 0, 0], [0, 1, 2, 2, 2, 1]] / volume
@@ -129,14 +128,14 @@ class GPR(nn.Module):
                 self.X_array = descriptor
                 self.y = energies - prior_energies
 
-        self.mean = torch.mean(self.X_array, 0)
-        self.std = torch.std(self.X_array, 0) + 1e-9
+        self.mean = torch.mean(self.X_array, 0).detach()
+        self.std = torch.std(self.X_array, 0).detach() + 1e-9
 
     def recompute_X_array(self):
         tmp_list = convert_frames(self.frames, self.environment_provider)
-        self.X_array = self.representation(tmp_list).sum(1).detach()
-        self.mean = torch.mean(self.X_array, 0)
-        self.std = torch.std(self.X_array, 0) + 1e-9
+        self.X_array = self.representation(tmp_list).sum(1)
+        self.mean = torch.mean(self.X_array, 0).detach()
+        self.std = torch.std(self.X_array, 0).detach() + 1e-9
 
     def train(self, epoch):
         # def eval_model():
@@ -160,8 +159,8 @@ class GPR(nn.Module):
             if i % 500 == 0:
                 print(i, ':', loss.item())
         K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
-        self.L = torch.cholesky(K, upper=False)
-        self.V, _ = torch.solve(self.y, self.L)
+        self.L = torch.cholesky(K, upper=False).detach()
+        self.V = torch.solve(self.y, self.L)[0].detach()
 
     def compute_log_likelihood(self):
         K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
@@ -199,10 +198,7 @@ class GPR(nn.Module):
         return forces
 
     def get_stresses(self, inputs):
-        scaling = torch.eye(3, requires_grad=True).float().\
-            repeat((inputs['cell'].shape[0], 1, 1))
-        inputs['positions'] = torch.matmul(inputs['positions'], scaling)
-        inputs['cell'] = torch.matmul(inputs['cell'], scaling)
+        inputs['scaling'].requires_grad_()
         volume = torch.sum(
             inputs['cell'][:, 0] *
             torch.cross(inputs['cell'][:, 1], inputs['cell'][:, 2], dim=-1),
@@ -211,7 +207,7 @@ class GPR(nn.Module):
         energies = self.get_energies(inputs)
         stresses = torch.autograd.grad(
             energies.sum(),
-            scaling,
+            inputs['scaling'],
             create_graph=True,
             retain_graph=True
         )[0][:, [0, 1, 2, 1, 0, 0], [0, 1, 2, 2, 2, 1]] / volume

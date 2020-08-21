@@ -19,14 +19,18 @@ for atoms in frames:
         elements.append(ele.number)
 elements = tuple(set(elements))
 environment_provider = ASEEnvironment(5.0)
-dpmd_r = Deepmd_radius(100, SmoothCosineCutoff(4.8, 5.0))
-dpmd_a = Deepmd_angular(100, SmoothCosineCutoff(2.8, 3.0))
-# representation = CombinationRepresentation(dpmd_r, dpmd_a)
-representation = CombinationRepresentation(dpmd_r)
+dpmd_r = Deepmd_radius(50, SmoothCosineCutoff(4.8, 5.0))
+dpmd_a = Deepmd_angular(50, SmoothCosineCutoff(4.8, 5.0))
+representation = CombinationRepresentation(dpmd_r, dpmd_a)
+# representation = CombinationRepresentation(dpmd_r)
 
 model = ANI(representation, environment_provider)
-
-
+b = convert_frames(frames[25:30], environment_provider)
+b['positions'].requires_grad_()
+e = model.get_energies(b)
+l1 = torch.autograd.grad(e.sum(), model.layer.weight)
+f = model.get_forces(b)
+l2 = torch.autograd.grad(f.sum(), model.layer.weight)
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=8, shuffle=True, collate_fn=_collate_aseatoms)
 test_data = AtomsData(frames[n_split:], environment_provider)
@@ -34,25 +38,27 @@ test_loader = DataLoader(test_data, batch_size=128, shuffle=False, collate_fn=_c
 
 loss_fn = torch.nn.MSELoss()
 
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-epoch = 3
-min_loss = 1000
-for i in range(epoch):
-    for i_batch, batch_data in enumerate(train_loader):
-        batch_data = {k: v.to(device) for k, v in batch_data.items()}
-        loss = get_loss(model, batch_data, weight=[1.0, 0.0, 0.0])
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-    for i_batch, batch_data in enumerate(test_loader):
-        batch_data = {k: v.to(device) for k, v in batch_data.items()}
-        loss, energy_loss, force_loss, stress_loss = \
-            get_loss(model, batch_data, verbose=True)
-        print(i, loss.cpu().detach().numpy(),
-              energy_loss.cpu().detach().numpy(),
-              force_loss.cpu().detach().numpy(),
-              stress_loss.cpu().detach().numpy())
-        if loss.cpu().detach().numpy() < min_loss:
-            min_loss = loss.cpu().detach().numpy()
-            torch.save(model.state_dict(), 'parameter-dpmd.pkl')
+# optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+# epoch = 10
+# min_loss = 1000
+# for i in range(epoch):
+#     for i_batch, batch_data in enumerate(train_loader):
+#         batch_data = {k: v.to(device) for k, v in batch_data.items()}
+#         loss = get_loss(model, batch_data, weight=[1.0, 0.0, 0.0])
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+#         print(loss)
+#         print(model.layer.weight.grad)
+#
+#     for i_batch, batch_data in enumerate(test_loader):
+#         batch_data = {k: v.to(device) for k, v in batch_data.items()}
+#         loss, energy_loss, force_loss, stress_loss = \
+#             get_loss(model, batch_data, verbose=True)
+#         print(i, loss.cpu().detach().numpy(),
+#               energy_loss.cpu().detach().numpy(),
+#               force_loss.cpu().detach().numpy(),
+#               stress_loss.cpu().detach().numpy())
+#         if loss.cpu().detach().numpy() < min_loss:
+#             min_loss = loss.cpu().detach().numpy()
+#             torch.save(model.state_dict(), 'parameter-dpmd.pkl')

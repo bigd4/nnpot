@@ -157,3 +157,17 @@ class AtomicNumberEmbedding(nn.Module):
 
     def forward(self, inputs):
         return self.z_weights(inputs)
+
+
+def augment_data(frames, n, dx=0.1):
+    add_frames = []
+    for _ in range(n):
+        atoms = frames[np.random.randint(len(frames))].copy()
+        d_positions = np.random.rand(*atoms.positions.shape) * dx
+        d_E = np.sum(d_positions * atoms.info['forces'])
+        atoms.info['energy'] -= d_E
+        atoms.positions += d_positions
+        add_frames.append(atoms)
+    frames.extend(add_frames)
+    np.random.shuffle(frames)
+    return frames
