@@ -104,6 +104,7 @@ def get_dict(atoms, environment_provider):
         'cell': torch.tensor(atoms.cell[:]).float(),
         'atomic_numbers': torch.tensor(atoms.numbers).long(),
         'scaling': torch.eye(3).float(),
+        'n_atoms': torch.ones(len(atoms)),
     }
 
     for key in ['energy', 'forces', 'stress']:

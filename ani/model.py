@@ -2,9 +2,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from ani.dataloader import convert_frames, AtomsData, _collate_aseatoms
-from ani.utils import get_loss, PositiveParameter
+from ani.utils import *
 from ani.prior import *
 import numpy as np
+from ani.gprdataset import SGPRData
 
 
 # 'update_dataset' and 'train' are api for Magus
@@ -137,7 +138,7 @@ class GPR(nn.Module):
         self.mean = torch.mean(self.X_array, 0).detach()
         self.std = torch.std(self.X_array, 0).detach() + 1e-9
 
-    def train(self, epoch):
+    def train(self, epoch, log_epoch=500):
         # def eval_model():
         #     likelihood = self.compute_log_likelihood()
         #     self.optimizer2.zero_grad()
@@ -156,7 +157,7 @@ class GPR(nn.Module):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            if i % 500 == 0:
+            if i % log_epoch == 0:
                 print(i, ':', loss.item())
         K = self.kern.K(self.X, self.X) + torch.eye(self.X.size(0)) * self.lamb.get()
         self.L = torch.cholesky(K, upper=False).detach()
@@ -212,3 +213,79 @@ class GPR(nn.Module):
             retain_graph=True
         )[0][:, [0, 1, 2, 1, 0, 0], [0, 1, 2, 2, 2, 1]] / volume
         return stresses
+
+
+class SparseGPR(GPR):
+    def __init__(self, representation, kern, environment_provider, prior=None, n_sparse=100, standardize=True):
+        super(SparseGPR, self).__init__(representation, kern, environment_provider, prior, standardize)
+        self.data = SGPRData(environment_provider, representation, self.prior, n_sparse)
+        self.lamb = BoundParameter(torch.tensor(0.01), a=1e-5, b=100.)
+
+    def update_data(self, frames):
+        self.data.update_data(frames)
+
+    def train(self, epoch, log_epoch=500):
+        for i in range(epoch):
+            loss = self.compute_log_likelihood()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            if i % log_epoch == 0:
+                print(i, ':', loss.item())
+
+        X_N, X_M, L_NK = self.data.X, self.data.X_M, self.data.L_NK
+        K_M = self.kern.K(X_M, X_M)
+        L_M = torch.cholesky(K_M, upper=False)
+        K_MN = self.kern.K(X_M, X_N)
+        K_MK = K_MN @ L_NK
+        K_N = self.kern.K(X_N, X_N)
+        V_MK, _ = torch.solve(K_MK, L_M)
+        ell = torch.sqrt(torch.diag(L_NK.t() @ K_N @ L_NK) -
+                         torch.sum(V_MK ** 2, 0) + self.lamb.get())
+
+        V_MK /= ell
+        Y = self.data.Y.view(-1) / ell
+        K_MK /= ell
+
+        A_M = torch.eye(X_M.size()[0]) + V_MK @ V_MK.t()
+        a_M = (K_MK @ Y).view(-1, 1)
+
+        L_A = torch.cholesky(A_M, upper=False)
+        self.L = (L_M @ L_A).detach()
+        self.V = torch.solve(a_M, self.L)[0].detach()
+
+    def compute_log_likelihood_(self):
+        X_N, X_M, L_NK = self.data.X, self.data.X_M, self.data.L_NK
+        K_N = self.kern.K(X_N, X_N)
+        K_M = self.kern.K(X_M, X_M)
+        L_M = torch.cholesky(K_M, upper=False)
+        K_MN = self.kern.K(X_M, X_N)
+        K_MK = K_MN @ L_NK
+        V_MK, _ = torch.solve(K_MK, L_M)
+        Diag_K = torch.diag(torch.diag(
+            L_NK.t() @ K_N @ L_NK - V_MK.t() @ V_MK) + self.lamb.get())
+        K = Diag_K + V_MK.t() @ V_MK
+        self.tmp_K1 = K
+
+        L = torch.cholesky(K, upper=False)
+        V, _ = torch.solve(self.data.Y, L)
+        V = V.squeeze(1)
+
+        ret = 0.5 * self.data.Y.size(0) * torch.tensor(np.log(2 * np.pi))
+        ret += torch.log(torch.diag(L)).sum()
+        ret += 0.5 * (V ** 2).sum()
+        return ret
+
+    def get_energies(self, inputs, with_std=False):
+        nb, na, nd = inputs['positions'].size()
+        Xnew = self.data.get_data(inputs)
+        Kx = self.kern.K(self.data.X_M, Xnew)
+        A = torch.solve(Kx, self.L)[0]
+        atom_energy = torch.mm(A.t(), self.V).view(nb, na)
+        energies = (atom_energy * inputs['n_atoms']).sum(1) + self.prior(inputs)
+        if with_std:
+            energies_var = self.kern.Kdiag(Xnew) - (A ** 2).sum(0)
+            energies_std = torch.sqrt(energies_var).view(-1)
+            return energies, energies_std
+        else:
+            return energies
