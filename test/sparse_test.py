@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 from ani.utils import *
 from ani.kernel import *
+import copy
 
 
 class SparseGPR(nn.Module):
@@ -108,19 +109,19 @@ Xnew = torch.randn((10, 5))
 
 kern = RBF()
 model = SparseGPR(kern)
-model.X = X
+model.X = copy.deepcopy(X)
 model.X_M = model.X[:100]
-model.Y = Y
-model.train(2000)
+model.Y = copy.deepcopy(Y)
+model.train(0)
 
 y1 = model.predict(Xnew)
 y1_true = (Xnew ** 2).sum(1)
 
 kern = RBF()
 model2 = GPR(kern)
-model2.X = X
-model2.Y = Y
-model2.train(2000)
+model2.X = copy.deepcopy(X)
+model2.Y = copy.deepcopy(Y)
+model2.train(0)
 
 y = model2.predict(Xnew)
 y_true = (Xnew ** 2).sum(1)

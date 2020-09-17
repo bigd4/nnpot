@@ -30,6 +30,7 @@ class GPRData:
         self.frames = []
         self.y = None
         self.X_array = None
+        self.L = None
 
     def get_data(self, inputs):
         X = self.representation(inputs)
@@ -41,6 +42,7 @@ class GPRData:
     def update_data(self, atoms_list):
         self.frames.extend(atoms_list)
         self.update_X(atoms_list)
+        self.update_L(atoms_list)
         self.update_y(atoms_list)
         self.update_mean_and_std()
 
@@ -53,6 +55,13 @@ class GPRData:
                 self.X_array = descriptor
             else:
                 self.X_array = torch.cat((self.X_array, descriptor))
+
+    def update_L(self, atoms_list):
+        for atoms in atoms_list:
+            if self.L is None:
+                self.L = np.ones((len(atoms), 1))
+            else:
+                self.L = block_diag(self.L, np.ones((len(atoms), 1)))
 
     def update_y(self, atoms_list):
         for atoms in atoms_list:
@@ -76,6 +85,10 @@ class GPRData:
         return self.X_array
 
     @property
+    def L_NK(self):
+        return torch.tensor(self.L).float()
+
+    @property
     def Y(self):
         return self.y
 
@@ -84,20 +97,8 @@ class SGPRData(GPRData):
         super(SGPRData, self).__init__(environment_provider, representation, prior)
         self.n_sparse = n_sparse
 
-    def initialize_data(self):
-        super(SGPRData, self).initialize_data()
-        self.L = None
-
-    def update_L(self, atoms_list):
-        for atoms in atoms_list:
-            if self.L is None:
-                self.L = np.ones((len(atoms), 1))
-            else:
-                self.L = block_diag(self.L, np.ones((len(atoms), 1)))
-
     def update_data(self, atoms_list):
         super(SGPRData, self).update_data(atoms_list)
-        self.update_L(atoms_list)
         self.X_unique = remove_dul(self.X)
 
     @property
@@ -107,5 +108,9 @@ class SGPRData(GPRData):
         return self.X_unique[random_indices[:n_sparse]]
 
     @property
-    def L_NK(self):
-        return torch.tensor(self.L).float()
+    def L_NM(self):
+        random_indices = torch.randperm(self.L_NK.size(1))
+        n_sparse = min(self.L_NK.size(1), self.n_sparse)
+        return self.L_NK[:, random_indices[:n_sparse]]
+        # return self.L_NK
+

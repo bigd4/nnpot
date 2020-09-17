@@ -5,6 +5,7 @@
 /tensorflow/
 /test/*
 !/test/*.py
+/test2/*
 .idea/
 
 # Byte-compiled / optimized / DLL files

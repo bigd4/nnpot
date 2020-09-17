@@ -5,18 +5,26 @@ from ani.cutoff import polynomial_cut
 from math import factorial
 
 
-def get_loss(model, batch_data, loss_fn=torch.nn.MSELoss(),  weight=[1.0, 1.0, 1.0], verbose=False):
+def get_loss(model, batch_data,  weight=[1.0, 1.0, 1.0], verbose=False):
     w_energy, w_forces, w_stress = weight
-    predict_energy = model.get_energies(batch_data)
-    predict_forces = model.get_forces(batch_data)
-    predict_stress = model.get_stresses(batch_data)
-    target_energy = batch_data['energy']
-    target_forces = batch_data['forces']
-    target_stress = batch_data['stress']
-    energy_loss = loss_fn(predict_energy, target_energy)
-    force_loss = loss_fn(predict_forces, target_forces)
-    stress_loss = loss_fn(predict_stress, target_stress)
-    loss = w_energy * energy_loss + w_forces * force_loss + w_stress * stress_loss
+    loss, energy_loss, force_loss, stress_loss = torch.zeros(4)
+    if w_energy > 0.:
+        predict_energy = model.get_energies(batch_data) / batch_data['n_atoms']
+        target_energy = batch_data['energy'] / batch_data['n_atoms']
+        energy_loss = torch.mean((predict_energy - target_energy) ** 2)
+
+    if w_forces > 0.:
+        predict_forces = model.get_forces(batch_data)
+        target_forces = batch_data['forces']
+        force_loss = torch.mean(torch.sum(
+            (predict_forces - target_forces) ** 2, 1) / batch_data['n_atoms'])
+
+    if w_stress > 0.:
+        predict_stress = model.get_stresses(batch_data)
+        target_stress = batch_data['stress']
+        stress_loss = torch.mean((predict_stress - target_stress) ** 2)
+
+    loss += w_energy * energy_loss + w_forces * force_loss + w_stress * stress_loss
     if verbose:
         return loss, energy_loss, force_loss, stress_loss
     return loss
@@ -114,10 +122,12 @@ def cut_zernike(n_max, n_cut=2):
 class Polynomial(nn.Module):
     def __init__(self, coef):
         super(Polynomial, self).__init__()
-        self.coef = coef
+        # self.coef = coef
+        self.register_buffer("coef", coef)
         self.n_max = coef.size()[-1]
 
     def forward(self, inputs):
+        inputs = inputs.to(self.coef.device)
         inputs = inputs.unsqueeze(-1)
         xx = torch.cat([inputs ** i for i in range(self.n_max)], -1)
         for _ in range(len(self.coef.size())-1):

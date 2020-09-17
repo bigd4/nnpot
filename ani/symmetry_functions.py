@@ -18,7 +18,8 @@ class CombinationRepresentation(nn.Module):
         x = []
         for f in self.functions:
             x.append(f(inputs))
-        return (torch.cat(x, dim=2) - self.mean) / self.std
+        return torch.cat(x, dim=2)
+        # return (torch.cat(x, dim=2) - self.mean) / self.std
 
 
 #TODO
@@ -29,7 +30,7 @@ class CombinationRepresentation(nn.Module):
 
 # Generalized Neural-Network Representation of High-Dimensional Potential-Energy Surfaces
 class BehlerG1(nn.Module):
-    def __init__(self, n_radius, cut_fn, etas=None, rss=None, train_para=True):
+    def __init__(self, elements, n_radius, cut_fn, etas=None, rss=None, train_para=True):
         super(BehlerG1, self).__init__()
         if etas is None:
             etas = torch.rand(n_radius) + 0.5
@@ -50,10 +51,7 @@ class BehlerG1(nn.Module):
             self.register_buffer("rss", rss)
         self.cut_fn = cut_fn
         self.dimension = n_radius
-
-        self.z_Embedding = nn.Embedding(300, 1)
-        # self.z_Embedding.weight.data = torch.arange(300)[:, None]
-        # self.z_Embedding.weight.requires_grad = False
+        self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
         positions = torch.matmul(inputs['positions'], inputs['scaling'])
@@ -65,7 +63,7 @@ class BehlerG1(nn.Module):
 
         z_ratio = self.z_Embedding(atomic_numbers)
         z_ij = neighbor_elements(z_ratio, neighbors)
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        distances = atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets)
         x = -self.etas[None, None, None, :] * \
             (distances[:, :, :, None] - self.rss[None, None, None, :]) ** 2
         cut = self.cut_fn(distances).unsqueeze(-1)
@@ -79,7 +77,7 @@ class BehlerG1(nn.Module):
 
 # TODO should train zetas? should distance be saved?
 class BehlerG2(nn.Module):
-    def __init__(self, n_angular, cut_fn, etas=None, zetas=[1], train_para=True):
+    def __init__(self, elements, n_angular, cut_fn, etas=None, zetas=[1], train_para=True):
         super(BehlerG2, self).__init__()
         if not etas:
             etas = torch.rand(n_angular) + 0.5
@@ -93,9 +91,7 @@ class BehlerG2(nn.Module):
         self.cut_fn = cut_fn
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
-        self.z_Embedding = nn.Embedding(300, 1)
-        self.z_Embedding.weight.data = torch.arange(300)[:, None]
-        self.z_Embedding.weight.requires_grad = False
+        self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
         positions = torch.matmul(inputs['positions'], inputs['scaling'])
@@ -114,7 +110,7 @@ class BehlerG2(nn.Module):
         z_ijk = z_ij * z_ik
 
         r_ij, r_ik, r_jk = triple_distances(
-            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets)
 
         x = -self.etas[None, None, None, :] * \
             (r_ij ** 2 + r_ik ** 2 + r_jk ** 2)[..., None]
@@ -143,9 +139,9 @@ class BehlerG2(nn.Module):
 
 
 class BehlerG3(nn.Module):
-    def __init__(self, n_angular, cut_fn, etas=None, zetas=[1], train_para=True):
+    def __init__(self, elements, n_angular, cut_fn, etas=None, zetas=[1.], train_para=True):
         super(BehlerG3, self).__init__()
-        if not etas:
+        if etas is None:
             etas = torch.rand(n_angular) + 0.5
 
         if train_para:
@@ -157,9 +153,7 @@ class BehlerG3(nn.Module):
         self.cut_fn = cut_fn
         self.zetas = torch.tensor(zetas)
         self.dimension = len(etas) * 2 * len(zetas)
-        self.z_Embedding = nn.Embedding(300, 1)
-        # self.z_Embedding.weight.data = torch.arange(300)[:, None]
-        # self.z_Embedding.weight.requires_grad = False
+        self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
         positions = torch.matmul(inputs['positions'], inputs['scaling'])
@@ -178,7 +172,7 @@ class BehlerG3(nn.Module):
         z_ijk = z_ij * z_ik
 
         r_ij, r_ik, r_jk = triple_distances(
-            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets)
 
         x = -self.etas[None, None, None, :] * \
             (r_ij ** 2 + r_ik ** 2)[..., None]
@@ -236,7 +230,7 @@ class Zernike(nn.Module):
 
         z_ratio = self.z_Embedding_j(atomic_numbers)
         z_ij = neighbor_elements(z_ratio, neighbors)
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        distances = atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets)
 
         radius_part = 2 * self.R_nl(distances/self.cutoff)[:, :, :, self.n1, self.l] * \
                       self.R_nl(distances/self.cutoff)[:, :, :, self.n2, self.l]
@@ -252,7 +246,7 @@ class Zernike(nn.Module):
         z_ik = neighbor_elements(z_ratio, neighbors_k)
         z_ijk = z_ij * z_ik
         r_ij, r_ik, r_jk = triple_distances(
-            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets, mask_triples)
+            positions, neighbors_j, neighbors_k, offsets_j, offsets_k, cell, offsets)
 
         radius_part1 = self.R_nl(r_ij/self.cutoff)[:, :, :, self.n1, self.l] * \
                        self.R_nl(r_ik/self.cutoff)[:, :, :, self.n2, self.l]
@@ -296,7 +290,7 @@ class Deepmd_radius(nn.Module):
         offsets = inputs['offsets']
         atomic_numbers = inputs['atomic_numbers']
 
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        distances = atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets)
         cut = self.cut_fn(distances)
         cut[mask == 0.0] = 0.0
         f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
@@ -319,7 +313,7 @@ class Deepmd_radius(nn.Module):
         offsets = inputs['offsets']
         atomic_numbers = inputs['atomic_numbers']
 
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        distances = atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets)
         cut = self.cut_fn(distances)
         cut[mask == 0.0] = 0.0
         f = torch.zeros(distances.size()[0], distances.size()[1], self.dimension)
@@ -343,7 +337,7 @@ class Deepmd_radius(nn.Module):
         offsets = inputs['offsets']
         atomic_numbers = inputs['atomic_numbers']
 
-        distances = atom_distances(positions, neighbors, cell, offsets, mask)
+        distances = atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets)
         cut = self.cut_fn(distances)
         cut[mask == 0.0] = 0.0
         cut = cut.sort(dim=-1, descending=True)[0]
@@ -368,7 +362,7 @@ class Deepmd_angular(nn.Module):
 
         nb, na, _ = positions.size()
         distances, dis_vec = \
-            atom_distances(positions, neighbors, cell, offsets, mask, vec=True)
+            atom_distances(positions=positions, neighbors=neighbors, mask=mask, cell=cell, offsets=offsets, vec=True)
         cut = self.cut_fn(distances) / distances
         cut[mask == 0.0] = 0.0
         sorted_index = cut.sort(dim=-1, descending=True)[1].unsqueeze(-1).expand_as(dis_vec)
