@@ -29,6 +29,18 @@ class SmoothCosineCutoff(nn.Module):
         return cutoffs
 
 
+class PolynomialCutoff(nn.Module):
+    def __init__(self, cutoff=3.0):
+        super(PolynomialCutoff, self).__init__()
+        self.register_buffer("cutoff", torch.FloatTensor([cutoff]))
+
+    def forward(self, distances):
+        # Compute values of cutoff function
+        cutoffs = (1.0 - (distances / self.cutoff) ** 2) ** 3
+        cutoffs *= (distances < self.cutoff).float()
+        return cutoffs
+
+
 def polynomial_cut(n):
     coef = np.zeros(n+2)
     coef[0] = 1

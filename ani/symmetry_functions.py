@@ -122,8 +122,8 @@ class BehlerG2(nn.Module):
 
         angular_pos = 2 ** (1 - self.zetas[None, None, None, :]) * \
                       ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
-        angular_neg = 2 ** (1 + self.zetas[None, None, None, :]) * \
-                      ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
+        angular_neg = 2 ** (1 - self.zetas[None, None, None, :]) * \
+                      ((1.0 + cos_theta[..., None]) ** self.zetas[None, None, None, :])
 
         angular_part = torch.cat((angular_pos, angular_neg), 3)
 
@@ -184,8 +184,8 @@ class BehlerG3(nn.Module):
 
         angular_pos = 2 ** (1 - self.zetas[None, None, None, :]) * \
                       ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
-        angular_neg = 2 ** (1 + self.zetas[None, None, None, :]) * \
-                      ((1.0 - cos_theta[..., None]) ** self.zetas[None, None, None, :])
+        angular_neg = 2 ** (1 - self.zetas[None, None, None, :]) * \
+                      ((1.0 + cos_theta[..., None]) ** self.zetas[None, None, None, :])
 
         angular_part = torch.cat((angular_pos, angular_neg), 3)
 

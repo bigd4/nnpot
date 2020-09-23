@@ -17,7 +17,7 @@ def get_loss(model, batch_data,  weight=[1.0, 1.0, 1.0], verbose=False):
         predict_forces = model.get_forces(batch_data)
         target_forces = batch_data['forces']
         force_loss = torch.mean(torch.sum(
-            (predict_forces - target_forces) ** 2, 1) / batch_data['n_atoms'])
+            (predict_forces - target_forces) ** 2, 1) / batch_data['n_atoms'].unsqueeze(-1))
 
     if w_stress > 0.:
         predict_stress = model.get_stresses(batch_data)

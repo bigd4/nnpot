@@ -91,8 +91,12 @@ def _collate_aseatoms(examples):
 def get_dict(atoms, environment_provider):
     neighbors, offsets, mask = environment_provider.get_environment(atoms)
     neighbors_j, neighbors_k, offsets_j, offsets_k, mask_triples = collect_atom_triples(neighbors)
+    all_mask = torch.ones((len(atoms), len(atoms)))
+    all_mask[torch.arange(len(atoms)), torch.arange(len(atoms))] = torch.tensor(0.)
     d = {
         'neighbors': torch.from_numpy(neighbors).long(),
+        'all_neighbors': torch.arange(len(atoms)).repeat(len(atoms), 1),
+        'all_mask': all_mask,
         'neighbors_j': torch.from_numpy(neighbors_j).long(),
         'neighbors_k': torch.from_numpy(neighbors_k).long(),
         'offsets_j': torch.from_numpy(offsets_j).long(),
@@ -108,7 +112,7 @@ def get_dict(atoms, environment_provider):
         'n_atoms': torch.tensor(len(atoms)).float(),
     }
 
-    for key in ['energy', 'forces', 'stress']:
+    for key in ['energy', 'forces', 'stress','q_tot']:
         if key in atoms.info:
             d[key] = torch.tensor(atoms.info[key]).float()
     return d

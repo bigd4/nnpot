@@ -11,9 +11,14 @@ import abc
 
 
 class MLP(nn.Module):
-    def __init__(self, n_in, n_hidden, activation=F.relu):
+    def __init__(self, n_in, n_hidden, activation='relu'):
         super(MLP, self).__init__()
-        self.activation = activation
+        try:
+            # self.activation_fn = getattr(F, activation)
+            # nn.functional.tanh is deprecated.
+            self.activation_fn = getattr(torch, activation)
+        except:
+            raise Exception("Unexpected activation functions")
         self.layer1 = nn.Linear(n_in, n_hidden[0])
         self.layers = nn.ModuleList([nn.Linear(n_hidden[i], n_hidden[i + 1]) for i in range(len(n_hidden) - 1)])
         self.layer2 = nn.Linear(n_hidden[-1], 1)
@@ -21,7 +26,7 @@ class MLP(nn.Module):
     def forward(self, inputs):
         f = self.layer1(inputs)
         for layer in self.layers:
-            f = self.activation(layer(f))
+            f = self.activation_fn(layer(f))
         f = self.layer2(f)
         return f
 
@@ -59,8 +64,12 @@ class AtomicModule(nn.Module, abc.ABC):
         return stresses
 
 
+# Behler's model, related work: N2P2, PyXtalFF
+# ANI-1: an extensible neural network potential with DFT accuracy
+# at force field computational cost
+# DOI: 10.1039/C6SC05720A
 class ANI(AtomicModule):
-    def __init__(self, representation, elements, n_hidden=[], train_descriptor=False):
+    def __init__(self, representation, elements, n_hidden=[50, 50], train_descriptor=False):
         super(ANI, self).__init__()
         self.representation = representation
         self.z_Embedding = OneHotEmbedding(elements)
@@ -80,24 +89,84 @@ class ANI(AtomicModule):
     def get_energies(self, inputs):
         atomic_numbers = inputs['atomic_numbers']
         representation = self.representation(inputs)
-        element_energies = torch.cat([net(representation) for net in self.element_net], 2)
-        energies = torch.sum(self.z_Embedding(atomic_numbers) * element_energies, (1, 2))
+        element_energies_set = torch.cat([net(representation) for net in self.element_net], 2)
+        element_energies = torch.sum(self.z_Embedding(atomic_numbers) * element_energies_set, 2)
+        energies = torch.sum(element_energies, 1)
+        return energies
+
+
+# to solve long-range charge transfer
+# Interatomic potentials for ionic systems with density functional accuracy
+# based on charge densities obtained by a neural network
+# DOI: 10.1103/PhysRevB.92.045131
+# TODO: test cholesky_solve
+class GoedeckerNet(AtomicModule):
+    def __init__(self, representation, elements, n_hidden=[3, 3], train_descriptor=False):
+        super(GoedeckerNet, self).__init__()
+        self.representation = representation
+        self.z_Embedding = OneHotEmbedding(elements)
+        self.element_net = nn.ModuleList()
+        for _ in range(len(elements)):
+            self.element_net.append(
+                nn.Sequential(
+                    MLP(self.representation.dimension, n_hidden, 'tanh'),
+                    torch.nn.Tanh()))
+
+        self.gaussian_width_Embedding = nn.Embedding(max(elements) + 1, 1)
+        self.gaussian_width_Embedding.weight.data = torch.ones((max(elements) + 1, 1))
+        self.gaussian_width_Embedding.weight.requires_grad = False
+        self.hardness_Embedding = nn.Embedding(max(elements) + 1, 1)
+        self.hardness_Embedding.weight.data = torch.ones((max(elements) + 1, 1)) * 0.2
+        self.hardness_Embedding.weight.requires_grad = False
+
+    def get_energies(self, inputs):
+        nb, na, nd = inputs['positions'].size()
+        atomic_numbers = inputs['atomic_numbers']
+        positions = inputs['positions']
+        all_neighbors = inputs['all_neighbors']
+        all_mask = inputs['all_mask']
+        q_tot = inputs['q_tot'].unsqueeze(-1)
+
+        representation = self.representation(inputs)
+        element_electronegativities_set = torch.cat([net(representation) for net in self.element_net], 2)
+        element_electronegativities = torch.sum(self.z_Embedding(atomic_numbers) * element_electronegativities_set, 2)
+        A = torch.ones((nb, na + 1, na + 1))
+        A[:, -1, -1] = 0.
+        alpha_i = self.gaussian_width_Embedding(atomic_numbers).squeeze(-1)
+        J_ii = self.hardness_Embedding(atomic_numbers).squeeze(-1)
+        gamma_ij = 1 / torch.sqrt(alpha_i[:, :, None] ** 2 + alpha_i[:, None, :] ** 2)
+        r_ij = atom_distances(positions, all_neighbors, all_mask, cell=None)
+        A_ = torch.erf(gamma_ij * r_ij) / r_ij
+        A_[all_mask == 0.] = 0.
+        A_diag = J_ii + torch.tensor(np.sqrt(2. / np.pi)) / alpha_i
+        A_[:, torch.arange(na), torch.arange(na)] = A_diag
+        A[:, :-1, :-1] = A_
+        y = torch.cat((element_electronegativities, q_tot), 1).unsqueeze(-1)
+        q_i = torch.solve(y, A)[0].squeeze(-1)[:, :-1]
+        q_ij = q_i[:, :, None] * q_i[:, None, :]
+
+        first_order_term = torch.sum(element_electronegativities * q_i, 1)
+        second_order_term = torch.sum(0.5 * A_diag * q_i ** 2, 1)
+        cross_term = torch.sum(torch.triu(q_ij * A_, 1), (1, 2))
+        energies = first_order_term + second_order_term + cross_term
         return energies
 
 
 class NNEnsemble(AtomicModule):
-    def __init__(self, modules):
+    def __init__(self, models):
         super(NNEnsemble, self).__init__()
-        self.modules = nn.ModuleList(modules)
-        self.size = len(modules)
+        self.models = nn.ModuleList(models)
+        self.size = len(models)
 
     def get_energies(self, inputs, with_std=False):
-        all_energies = torch.cat([module(inputs).unsqueeze(-1) for module in self.modules], 1)
+        all_energies = torch.cat([model.get_energies(inputs).unsqueeze(-1) for model in self.models], 1)
         mean_energies = torch.mean(all_energies, 1)
         if with_std:
             std_energies = torch.std(all_energies, 1)
             return mean_energies, std_energies
         return mean_energies
+
+
 #TODO
 # 1. only atoms near to target atoms be used
 # 2. train descriptor parameters directly in GPR model is not stable

@@ -14,7 +14,7 @@ torch.cuda.empty_cache()
 device = "cpu"
 # device = 'cuda:0'
 # read data set and get elements
-frames = read('initpop1.traj', ':')
+frames = read('Al/base.traj', ':')
 # frames = augment_data(frames, n=300)
 elements = []
 for atoms in frames:
@@ -42,64 +42,48 @@ for _ in range(n_bagging):
     train_loader = DataLoader(train_subset, batch_size=16, shuffle=True, collate_fn=_collate_aseatoms)
 
     # behler
-    n_radius = 30
-    n_angular = 10
+    n_radius = 22
+    n_angular = 5
     cut_fn = CosineCutoff(cutoff)
-    rdf = BehlerG1(n_radius, cut_fn)
-    adf = BehlerG3(n_angular, cut_fn)
+    rss = torch.linspace(0.5, cutoff - 0.5, n_radius)
+    etas = 0.5 * torch.ones_like(rss) / (rss[1] - rss[0]) ** 2
+    rdf = BehlerG1(elements, n_radius, cut_fn, etas=etas, rss=rss, train_para=False)
+
+    etas = 0.5 / torch.linspace(1, cutoff - 0.5, n_angular) ** 2
+    adf = BehlerG3(elements, n_angular, cut_fn, etas=etas)
 
     # get representations
-    representation = CombinationRepresentation(rdf, adf)
+    representation = CombinationRepresentation(rdf)
 
     model = ANI(representation, elements, [50, 50])
     model.to(device)
-
-    loss_fn = torch.nn.MSELoss()
-
-    nn_parameters, descriptor_parameters = [], []
-    for key, value in model.named_parameters():
-        if 'etas' in key or 'rss' in key:
-            descriptor_parameters.append(value)
-        else:
-            nn_parameters.append(value)
-    nn_optimizer = torch.optim.Adam(nn_parameters)
-    descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
-
+    optimizer = torch.optim.Adam(model.parameters())
 
     epoch = 100
     min_loss = 1000
     for i in range(epoch):
-        # optimize descriptor parameters
-        if i % 5 == 0:
-            for i_batch, batch_data in enumerate(train_loader):
-                batch_data = {k: v.to(device) for k, v in batch_data.items()}
-                loss = get_loss(model, batch_data, weight=[1.0, 0.0, 0.0])
-                descriptor_optimizer.zero_grad()
-                loss.backward()
-                descriptor_optimizer.step()
-
         for i_batch, batch_data in enumerate(train_loader):
             batch_data = {k: v.to(device) for k, v in batch_data.items()}
             loss = get_loss(model, batch_data, weight=[1.0, 0.0, 0.0])
-            nn_optimizer.zero_grad()
+            optimizer.zero_grad()
             loss.backward()
-            nn_optimizer.step()
-
-        loss, energy_loss, force_loss, stress_loss = 0., 0., 0., 0.
-        for i_batch, batch_data in enumerate(test_loader):
-            batch_data = {k: v.to(device) for k, v in batch_data.items()}
-            loss, energy_loss, force_loss, stress_loss = \
-                get_loss(model, batch_data, torch.nn.L1Loss(), weight=[1.0, 0.0, 0.0], verbose=True)
-
-        print(i, loss.cpu().detach().numpy(),
-              energy_loss.cpu().detach().numpy(),
-              force_loss.cpu().detach().numpy(),
-              stress_loss.cpu().detach().numpy())
-        if loss.cpu().detach().numpy() < min_loss:
-            min_loss = loss.cpu().detach().numpy()
-            torch.save(model.state_dict(), 'parameter-new.pkl')
+            optimizer.step()
 
     model.to('cpu')
     nets.append(model)
 
 full_model = NNEnsemble(nets)
+
+# loss, energy_loss, force_loss, stress_loss = 0., 0., 0., 0.
+# for i_batch, batch_data in enumerate(test_loader):
+#     batch_data = {k: v.to(device) for k, v in batch_data.items()}
+#     loss, energy_loss, force_loss, stress_loss = \
+#         get_loss(full_model, batch_data, weight=[1.0, 1.0, 1.0], verbose=True)
+#
+# print(i, loss.cpu().detach().numpy(),
+#       energy_loss.cpu().detach().numpy(),
+#       force_loss.cpu().detach().numpy(),
+#       stress_loss.cpu().detach().numpy())
+# if loss.cpu().detach().numpy() < min_loss:
+#     min_loss = loss.cpu().detach().numpy()
+#     torch.save(model.state_dict(), 'parameter-new.pkl')
