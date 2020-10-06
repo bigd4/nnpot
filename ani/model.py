@@ -11,20 +11,23 @@ import abc
 
 
 class MLP(nn.Module):
-    def __init__(self, n_in, n_hidden, activation='relu'):
+    def __init__(self, n_in, n_hidden, activation='shifted_softplus'):
         super(MLP, self).__init__()
         try:
-            # self.activation_fn = getattr(F, activation)
-            # nn.functional.tanh is deprecated.
-            self.activation_fn = getattr(torch, activation)
+            self.activation_fn = activation_dict[activation]
         except:
-            raise Exception("Unexpected activation functions")
+            try:
+                # self.activation_fn = getattr(F, activation)
+                # nn.functional.tanh is deprecated.
+                self.activation_fn = getattr(torch, activation)
+            except:
+                raise Exception("Unexpected activation functions")
         self.layer1 = nn.Linear(n_in, n_hidden[0])
         self.layers = nn.ModuleList([nn.Linear(n_hidden[i], n_hidden[i + 1]) for i in range(len(n_hidden) - 1)])
         self.layer2 = nn.Linear(n_hidden[-1], 1)
 
     def forward(self, inputs):
-        f = self.layer1(inputs)
+        f = self.activation_fn(self.layer1(inputs))
         for layer in self.layers:
             f = self.activation_fn(layer(f))
         f = self.layer2(f)
@@ -69,9 +72,13 @@ class AtomicModule(nn.Module, abc.ABC):
 # at force field computational cost
 # DOI: 10.1039/C6SC05720A
 class ANI(AtomicModule):
-    def __init__(self, representation, elements, n_hidden=[50, 50], train_descriptor=False):
+    def __init__(self, representation, elements, n_hidden=[50, 50], prior=None,
+                 mean=0., std=1., train_descriptor=False):
         super(ANI, self).__init__()
         self.representation = representation
+        self.prior = prior or NonePrior()
+        self.register_buffer("mean", torch.tensor(mean))
+        self.register_buffer("std", torch.tensor(std))
         self.z_Embedding = OneHotEmbedding(elements)
         self.element_net = nn.ModuleList([MLP(self.representation.dimension, n_hidden) for _ in range(len(elements))])
 
@@ -86,12 +93,17 @@ class ANI(AtomicModule):
         if train_descriptor:
             self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
+    def set_statics(self, mean, std):
+        self.register_buffer("mean", torch.tensor(mean))
+        self.register_buffer("std", torch.tensor(std))
+
     def get_energies(self, inputs):
         atomic_numbers = inputs['atomic_numbers']
         representation = self.representation(inputs)
         element_energies_set = torch.cat([net(representation) for net in self.element_net], 2)
+        element_energies_set = element_energies_set * self.std + self.mean
         element_energies = torch.sum(self.z_Embedding(atomic_numbers) * element_energies_set, 2)
-        energies = torch.sum(element_energies, 1)
+        energies = torch.sum(element_energies, 1) + self.prior(inputs)
         return energies
 
 

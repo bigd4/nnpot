@@ -3,6 +3,27 @@ import torch.nn as nn
 import numpy as np
 from ani.cutoff import polynomial_cut
 from math import factorial
+from torch.nn import functional
+
+
+def get_elements(frames):
+    elements = []
+    for atoms in frames:
+        for ele in atoms:
+            elements.append(ele.number)
+    elements = tuple(set(elements))
+    return elements
+
+
+def get_statistic(frames, prior=None):
+    energy_peratom = []
+    for atoms in frames:
+        energy = atoms.info['energy']
+        if prior is not None:
+            energy -= prior(frames)
+        energy_peratom.append(energy / len(atoms))
+    mean, std = np.mean(energy_peratom), np.std(energy_peratom)
+    return mean, std
 
 
 def get_loss(model, batch_data,  weight=[1.0, 1.0, 1.0], verbose=False):
@@ -183,3 +204,7 @@ def augment_data(frames, n, dx=0.1):
     return frames
 
 
+def shifted_softplus(x):
+    return functional.softplus(x) - np.log(2.0)
+
+activation_dict = {'shifted_softplus': shifted_softplus}

@@ -120,3 +120,4 @@ def get_dict(atoms, environment_provider):
 
 def convert_frames(frames, environment_provider):
     return _collate_aseatoms([get_dict(atoms, environment_provider) for atoms in frames])
+

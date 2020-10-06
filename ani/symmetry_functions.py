@@ -151,7 +151,7 @@ class BehlerG3(nn.Module):
             self.register_buffer("etas", etas)
 
         self.cut_fn = cut_fn
-        self.zetas = torch.tensor(zetas)
+        self.register_buffer("etas", torch.tensor(zetas))
         self.dimension = len(etas) * 2 * len(zetas)
         self.z_Embedding = AtomicNumberEmbedding(elements)
 

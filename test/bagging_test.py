@@ -87,3 +87,5 @@ full_model = NNEnsemble(nets)
 # if loss.cpu().detach().numpy() < min_loss:
 #     min_loss = loss.cpu().detach().numpy()
 #     torch.save(model.state_dict(), 'parameter-new.pkl')
+logging.info("loss:\nenergy_mse:{:.5f}\tenergy_r2:{:.5f}\n"
+             "force_mse:{:.5f}\tforce_r2:{:.5f}".format(*self.ML.get_loss(relaxPop.frames)[:4]))
