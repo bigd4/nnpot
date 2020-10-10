@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 from ani.cutoff import polynomial_cut
 from math import factorial
-from torch.nn import functional
+from torch.nn import functional as F
 
 
 def get_elements(frames):
@@ -28,7 +28,7 @@ def get_statistic(frames, prior=None):
 
 def get_loss(model, batch_data,  weight=[1.0, 1.0, 1.0], verbose=False):
     w_energy, w_forces, w_stress = weight
-    loss, energy_loss, force_loss, stress_loss = torch.zeros(4)
+    loss, energy_loss, force_loss, stress_loss = torch.zeros(4).to(batch_data['positions'])
     if w_energy > 0.:
         predict_energy = model.get_energies(batch_data) / batch_data['n_atoms']
         target_energy = batch_data['energy'] / batch_data['n_atoms']
@@ -205,6 +205,6 @@ def augment_data(frames, n, dx=0.1):
 
 
 def shifted_softplus(x):
-    return functional.softplus(x) - np.log(2.0)
+    return F.softplus(x) - np.log(2.0)
 
 activation_dict = {'shifted_softplus': shifted_softplus}

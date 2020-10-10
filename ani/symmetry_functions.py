@@ -77,7 +77,7 @@ class BehlerG1(nn.Module):
 
 # TODO should train zetas? should distance be saved?
 class BehlerG2(nn.Module):
-    def __init__(self, elements, n_angular, cut_fn, etas=None, zetas=[1], train_para=True):
+    def __init__(self, elements, n_angular, cut_fn, etas=None, zetas=[1.], train_para=True):
         super(BehlerG2, self).__init__()
         if not etas:
             etas = torch.rand(n_angular) + 0.5
@@ -89,7 +89,7 @@ class BehlerG2(nn.Module):
             self.register_buffer("etas", etas)
 
         self.cut_fn = cut_fn
-        self.zetas = torch.tensor(zetas)
+        self.register_buffer("zetas", torch.tensor(zetas))
         self.dimension = len(etas) * 2 * len(zetas)
         self.z_Embedding = AtomicNumberEmbedding(elements)
 
@@ -151,7 +151,7 @@ class BehlerG3(nn.Module):
             self.register_buffer("etas", etas)
 
         self.cut_fn = cut_fn
-        self.register_buffer("etas", torch.tensor(zetas))
+        self.register_buffer("zetas", torch.tensor(zetas))
         self.dimension = len(etas) * 2 * len(zetas)
         self.z_Embedding = AtomicNumberEmbedding(elements)
 

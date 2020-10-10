@@ -8,7 +8,7 @@ import numpy as np
 class NonePrior(nn.Module):
     def forward(self, inputs):
         positions = inputs['positions']
-        f = torch.zeros(positions.size()[0])
+        f = torch.zeros(positions.size()[0], device=positions.device)
         return f
 
 
