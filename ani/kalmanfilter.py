@@ -46,10 +46,6 @@ class KalmanFilter:
 
             for i, y in enumerate(y_predict):
                 j = 0
-                for p in self.params:
-                    H[i][j: j + p.numel()] = torch.autograd.grad(y, p, retain_graph=True)[0].view(-1)
-                    j += p.numel()
-                j = 0
                 y.backward(retain_graph=True)
                 for p in self.params:
                     H[i][j: j + p.numel()] = p.grad.view(-1)

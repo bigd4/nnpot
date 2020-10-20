@@ -6,31 +6,38 @@ from ani.utils import *
 from ani.prior import *
 import numpy as np
 from ani.gprdataset import *
-import torch.nn.functional as F
 import abc
 
 
+# TODO test whether the speed will be affected if always add dropout(p=0.)
 class MLP(nn.Module):
-    def __init__(self, n_in, n_hidden, activation='shifted_softplus'):
+    def __init__(self, n_in, n_hidden, activation='shifted_softplus', drop=False, p=0.5):
         super(MLP, self).__init__()
         try:
             self.activation_fn = activation_dict[activation]
         except:
             try:
-                # self.activation_fn = getattr(F, activation)
-                # nn.functional.tanh is deprecated.
                 self.activation_fn = getattr(torch, activation)
             except:
                 raise Exception("Unexpected activation functions")
         self.layer1 = nn.Linear(n_in, n_hidden[0])
         self.layers = nn.ModuleList([nn.Linear(n_hidden[i], n_hidden[i + 1]) for i in range(len(n_hidden) - 1)])
         self.layer2 = nn.Linear(n_hidden[-1], 1)
+        self.dropout = nn.Dropout(p=p) if drop else None
 
     def forward(self, inputs):
-        f = self.activation_fn(self.layer1(inputs))
+        f = self.layer1(inputs)
+        if self.dropout is not None:
+            f = self.dropout(f)
+        f = self.activation_fn(f)
         for layer in self.layers:
-            f = self.activation_fn(layer(f))
+            f = layer(f)
+            if self.dropout is not None:
+                f = self.dropout(f)
+            f = self.activation_fn(f)
         f = self.layer2(f)
+        if self.dropout is not None:
+            f = self.dropout(f)
         return f
 
 
@@ -73,7 +80,7 @@ class AtomicModule(nn.Module, abc.ABC):
 # DOI: 10.1039/C6SC05720A
 class ANI(AtomicModule):
     def __init__(self, representation, elements, n_hidden=[50, 50], prior=None,
-                 mean=0., std=1., train_descriptor=False):
+                 mean=0., std=1.,):
         super(ANI, self).__init__()
         self.representation = representation
         self.prior = prior or NonePrior()
@@ -81,17 +88,6 @@ class ANI(AtomicModule):
         self.register_buffer("std", torch.tensor(std))
         self.z_Embedding = OneHotEmbedding(elements)
         self.element_net = nn.ModuleList([MLP(self.representation.dimension, n_hidden) for _ in range(len(elements))])
-
-        nn_parameters, descriptor_parameters = [], []
-        for key, value in self.named_parameters():
-            if 'representation' in key:
-                descriptor_parameters.append(value)
-            else:
-                nn_parameters.append(value)
-        self.nn_optimizer = torch.optim.Adam(nn_parameters)
-        self.train_descriptor = train_descriptor
-        if train_descriptor:
-            self.descriptor_optimizer = torch.optim.Adam(descriptor_parameters)
 
     def set_statics(self, mean, std):
         self.register_buffer("mean", torch.tensor(mean))
@@ -105,6 +101,30 @@ class ANI(AtomicModule):
         element_energies = torch.sum(self.z_Embedding(atomic_numbers) * element_energies_set, 2)
         energies = torch.sum(element_energies, 1) + self.prior(inputs)
         return energies
+
+
+# Use dropout to calculate uncertainty
+# Uncertainty quantification in molecular simulations with
+# dropout neural network potentials
+# DOI: 10.1038/s41524-020-00390-8
+class DropoutANI(ANI):
+    def __init__(self, representation, elements, n_hidden=[50, 50], prior=None,
+                 mean=0., std=1., p=0.3):
+        super(DropoutANI, self).__init__(representation, elements, n_hidden, prior, mean, std)
+        self.element_net = nn.ModuleList(
+            [MLP(self.representation.dimension, n_hidden, drop=True, p=p)
+             for _ in range(len(elements))])
+
+    def get_energies(self, inputs, with_std=False):
+        if with_std:
+            all_energies = torch.cat(
+                [super(DropoutANI, self).get_energies(inputs).unsqueeze(-1) for _ in range(20)], 1)
+            mean_energies = torch.mean(all_energies, 1)
+            std_energies = torch.std(all_energies, 1)
+            return mean_energies, std_energies
+        else:
+            energies = super(DropoutANI, self).get_energies(inputs)
+            return energies
 
 
 # to solve long-range charge transfer

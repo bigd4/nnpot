@@ -60,6 +60,11 @@ class AtomsData(Dataset):
             self.datalist[i] = get_dict(atoms, self.environment_provider)
         return self.datalist[i]
 
+    def remove(self, index):
+        for i in sorted(index, reverse=True):
+            self.frames.pop(i)
+            self.datalist.pop(i)
+
 
 def _collate_aseatoms(examples):
     properties = examples[0]

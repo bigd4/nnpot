@@ -2,9 +2,13 @@
 
 .vscode
 .vs
+*.pt
+*.txt
 /tensorflow/
 /test/*
 !/test/*.py
+!/test/uncertainty/
+/test/uncertainty/sps_all.xyz
 /test2/*
 .idea/
 
