@@ -14,12 +14,21 @@ class CombinationRepresentation(nn.Module):
         self.mean = torch.tensor([0.])
         self.std = torch.tensor([1.])
 
-    def forward(self, inputs):
+    # Representations do not need to be recalculated if we don't need grad
+    def forward(self, inputs, need_grad=False):
+        if inputs['positions'].requires_grad:
+            need_grad = True
+        if inputs['scaling'].requires_grad:
+            need_grad = True
+            inputs['positions'] = torch.matmul(inputs['positions'], inputs['scaling'])
+            inputs['cell'] = torch.matmul(inputs['cell'], inputs['scaling'])
+        if not need_grad and 'representations' in inputs:
+            return inputs['representations']
         x = []
         for f in self.functions:
             x.append(f(inputs))
-        return torch.cat(x, dim=2)
-        # return (torch.cat(x, dim=2) - self.mean) / self.std
+        representation = torch.cat(x, dim=2)
+        return representation
 
 
 #TODO
@@ -54,8 +63,8 @@ class BehlerG1(nn.Module):
         self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         offsets = inputs['offsets']
         mask = inputs['mask']
@@ -94,8 +103,8 @@ class BehlerG2(nn.Module):
         self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
         mask_triples = inputs['mask_triples']
@@ -156,8 +165,8 @@ class BehlerG3(nn.Module):
         self.z_Embedding = AtomicNumberEmbedding(elements)
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
         mask_triples = inputs['mask_triples']
@@ -214,8 +223,8 @@ class Zernike(nn.Module):
         self.cutoff = cutoff
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         neighbors_j = inputs['neighbors_j']
         neighbors_k = inputs['neighbors_k']
@@ -283,8 +292,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -306,8 +315,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -330,8 +339,8 @@ class Deepmd_radius(nn.Module):
         self.dimension = n_radius
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']
@@ -353,8 +362,8 @@ class Deepmd_angular(nn.Module):
         self.dimension = n_angular * 3
 
     def forward(self, inputs):
-        positions = torch.matmul(inputs['positions'], inputs['scaling'])
-        cell = torch.matmul(inputs['cell'], inputs['scaling'])
+        positions = inputs['positions']
+        cell = inputs['cell']
         neighbors = inputs['neighbors']
         mask = inputs['mask']
         offsets = inputs['offsets']

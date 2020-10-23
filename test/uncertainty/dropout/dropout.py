@@ -41,7 +41,7 @@ adf = BehlerG3(elements, n_angular, cut_fn, etas=etas, train_para=False)
 # get representations
 representation = CombinationRepresentation(rdf, adf)
 
-model = DropoutANI(representation, elements, [50, 50], mean=mean, std=std, p=0.3)
+model = DropoutANI(representation, elements, [70, 70], mean=mean, std=std, p=0.3)
 model.to(device)
 
 n_split = 4500
@@ -50,9 +50,17 @@ train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=_c
 test_data = AtomsData(frames[n_split:], environment_provider)
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, collate_fn=_collate_aseatoms)
 
+for atoms_data in train_data:
+    batch_data = {k: v.unsqueeze(0).to(device) for k, v in atoms_data.items()}
+    atoms_data['representations'] = representation(batch_data).squeeze(0)
+
+for atoms_data in test_data:
+    batch_data = {k: v.unsqueeze(0).to(device) for k, v in atoms_data.items()}
+    atoms_data['representations'] = representation(batch_data).squeeze(0)
+
 optimizer = torch.optim.Adam(model.parameters())
 
-epoch = 300
+epoch = 100
 min_loss = 1000
 eloss = []
 for i in range(epoch):

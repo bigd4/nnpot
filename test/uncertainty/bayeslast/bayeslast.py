@@ -10,6 +10,7 @@ import torch
 import logging
 from ani.kalmanfilter import KalmanFilter
 import time
+from sklearn.linear_model import BayesianRidge
 
 
 logging.basicConfig(filename='log.txt', level=logging.DEBUG, format="%(asctime)s  %(message)s",datefmt='%H:%M:%S')
@@ -27,13 +28,10 @@ mean, std = get_statistic(frames)
 cutoff = 3.
 environment_provider = ASEEnvironment(cutoff)
 
-n_split1 = 4000
-n_split2 = 4500
-train_data = AtomsData(frames[:n_split1], environment_provider)
+n_split = 4500
+train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
-delta_train_data = AtomsData(frames[: n_split2], environment_provider)
-delta_train_loader = DataLoader(delta_train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
-test_data = AtomsData(frames[n_split2:], environment_provider)
+test_data = AtomsData(frames[n_split:], environment_provider)
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, collate_fn=_collate_aseatoms)
 
 # model 1
@@ -50,7 +48,7 @@ adf = BehlerG3(elements, n_angular, cut_fn, etas=etas, train_para=False)
 representation = CombinationRepresentation(rdf, adf)
 
 t0 = time.time()
-for atoms_data in delta_train_data:
+for atoms_data in train_data:
     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
     atoms_data['representations'] = representation(batch_data).squeeze(0)
 
@@ -63,7 +61,7 @@ model = ANI(representation, elements, [15, 15], mean=mean, std=std)
 h = lambda batch_data: model.get_energies(batch_data)
 z = lambda batch_data: batch_data['energy']
 optimizer = KalmanFilter(model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
-epoch = 10
+epoch = 5
 min_loss = 1000
 eloss = []
 for i in range(epoch):
@@ -83,33 +81,23 @@ for i in range(epoch):
         min_loss = loss
         torch.save(model.state_dict(), 'para.pt')
 
-
-# model 2
-delta_model = ANI(representation, elements, [15, 15])
-epoch = 5
-min_loss = 1000
-
-h = lambda batch_data: delta_model.get_energies(batch_data)
-z = lambda batch_data: batch_data['energy'] - model.get_energies(batch_data)
-optimizer = KalmanFilter(model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
-
-
-for i in range(epoch):
-    optimizer.step(train_loader)
-
-    with torch.no_grad():
-        delta_loss = 0.
-        for i_batch, batch_data in enumerate(test_loader):
-            batch_data = {k: v.to(device) for k, v in batch_data.items()}
-            predict_delta = delta_model.get_energies(batch_data) / batch_data['n_atoms']
-            target_delta = (batch_data['energy'] - model.get_energies(batch_data)) / batch_data['n_atoms']
-            delta_loss += torch.mean((predict_delta - target_delta) ** 2).item()
-        delta_loss = np.sqrt(delta_loss / (i_batch + 1))
-
-    print('{:5d}\t{:.4f}'.format(i, delta_loss))
-
-    if delta_loss < min_loss:
-        min_loss = delta_loss
-        torch.save(delta_model.state_dict(), 'delta_para.pt')
-
-print(time.time() - t0)
+# X_train = []
+# Y_train = []
+# for atoms_data in train_data:
+#     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+#     X_train.append(model.get_latent_variables(batch_data).squeeze(0).detach().numpy())
+#     Y_train.append(batch_data['energy'].squeeze(0).numpy())
+# X_train = np.array(X_train)
+# Y_train = np.array(Y_train)
+#
+# X_test = []
+# Y_test = []
+# for atoms_data in test_data:
+#     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+#     X_test.append(model.get_latent_variables(batch_data).squeeze(0).detach().numpy())
+#     Y_test.append(batch_data['energy'].numpy())
+# X_test = np.array(X_test)
+# Y_test = np.array(Y_test)
+#
+# model2 = BayesianRidge()
+# model2.fit(X_train, Y_train)

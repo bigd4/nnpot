@@ -26,6 +26,11 @@ class MLP(nn.Module):
         self.dropout = nn.Dropout(p=p) if drop else None
 
     def forward(self, inputs):
+        f = self.get_latent_variables(inputs)
+        f = self.layer2(f)
+        return f
+
+    def get_latent_variables(self, inputs):
         f = self.layer1(inputs)
         if self.dropout is not None:
             f = self.dropout(f)
@@ -35,9 +40,6 @@ class MLP(nn.Module):
             if self.dropout is not None:
                 f = self.dropout(f)
             f = self.activation_fn(f)
-        f = self.layer2(f)
-        if self.dropout is not None:
-            f = self.dropout(f)
         return f
 
 
@@ -101,6 +103,14 @@ class ANI(AtomicModule):
         element_energies = torch.sum(self.z_Embedding(atomic_numbers) * element_energies_set, 2)
         energies = torch.sum(element_energies, 1) + self.prior(inputs)
         return energies
+
+    def get_latent_variables(self, inputs):
+        atomic_numbers = inputs['atomic_numbers']
+        representation = self.representation(inputs)
+        latent_variables_set = torch.cat([net.get_latent_variables(representation).unsqueeze(2)
+                                          for net in self.element_net], 2)
+        latent_variables = torch.sum(self.z_Embedding(atomic_numbers)[..., None] * latent_variables_set, dim=(1, 2))
+        return latent_variables
 
 
 # Use dropout to calculate uncertainty

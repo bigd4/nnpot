@@ -10,6 +10,9 @@ from ani.utils import *
 from torch.utils.data import DataLoader
 import torch
 import logging
+import numpy as np
+from scipy import stats
+from tqdm import tqdm
 
 
 logging.basicConfig(filename='log.txt', level=logging.DEBUG, format="%(asctime)s  %(message)s",datefmt='%H:%M:%S')
@@ -51,11 +54,52 @@ test_data = AtomsData(frames[n_split:], environment_provider)
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, collate_fn=_collate_aseatoms)
 
 model.load_state_dict(torch.load('para.pt'))
-with torch.no_grad():
-    loss = 0.
-    for i_batch, batch_data in enumerate(test_loader):
-        batch_data = {k: v.to(device) for k, v in batch_data.items()}
-        loss += get_loss(model, batch_data, weight=[1.0, 0.0, 0.0]).item()
-    loss = np.sqrt(loss / (i_batch + 1))
 
-    print(loss)
+target_energies = []
+predict_energies = []
+predict_deltas = []
+target_deltas = []
+with torch.no_grad():
+    for atoms_data in test_data:
+        batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+        predict_energies.append(model.get_energies(batch_data).item() / batch_data['n_atoms'].item())
+        target_energies.append(batch_data['energy'].item() / batch_data['n_atoms'].item())
+        predict_deltas.append(delta_model.get_energies(batch_data).item() / batch_data['n_atoms'].item())
+        target_deltas.append(predict_energies[-1] - target_energies[-1])
+
+target_energies = np.array(target_energies)
+predict_energies = np.array(predict_energies)
+predict_deltas = np.array(predict_deltas)
+target_deltas = np.array(target_deltas)
+
+# Define a normalized bell curve we'll be using to calculate calibration
+norm = stats.norm(loc=0, scale=1)
+
+# Computing calibration
+def calculate_density(percentile):
+    # Find the normalized bounds of this percentile
+    upper_bound = norm.ppf(percentile)
+
+    # Normalize the residuals so they all should fall on the normal bell curve
+    normalized_residuals = target_deltas.reshape(-1) / predict_deltas.reshape(-1)
+
+    # Count how many residuals fall inside here
+    num_within_quantile = 0
+    for resid in normalized_residuals:
+        if resid <= upper_bound:
+            num_within_quantile += 1
+
+    # Return the fraction of residuals that fall within the bounds
+    density = num_within_quantile / len(target_deltas)
+    return density
+
+predicted_pi = np.linspace(0, 1, 100)
+observed_pi = [calculate_density(quantile)
+               for quantile in tqdm(predicted_pi, desc='Calibration')]
+
+calibration_error = ((predicted_pi - observed_pi)**2).sum()
+print('Calibration error = %.2f' % calibration_error)
+
+import matplotlib.pyplot as plt
+plt.scatter(predicted_pi, predicted_pi)
+plt.scatter(predicted_pi, observed_pi)

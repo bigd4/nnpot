@@ -4,6 +4,10 @@
 .vs
 *.pt
 *.txt
+*.pkl
+*.npy
+*.png
+*.traj
 /tensorflow/
 /test/*
 !/test/*.py
