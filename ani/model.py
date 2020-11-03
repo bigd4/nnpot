@@ -137,6 +137,20 @@ class DropoutANI(ANI):
             return energies
 
 
+class DeltaANI(ANI):
+    def get_energies(self, inputs, with_std=False):
+        raise Exception("delta ANI model cannot be used to calculate energy")
+
+    def get_variance(self, inputs):
+        atomic_numbers = inputs['atomic_numbers']
+        representation = self.representation(inputs)
+        element_variance_set = torch.cat([net(representation) for net in self.element_net], 2)
+        element_variance_set = element_variance_set ** 2
+        element_variance = torch.sum(self.z_Embedding(atomic_numbers) * element_variance_set, 2)
+        variance = torch.sum(element_variance, 1)
+        return variance
+
+
 # to solve long-range charge transfer
 # Interatomic potentials for ionic systems with density functional accuracy
 # based on charge densities obtained by a neural network

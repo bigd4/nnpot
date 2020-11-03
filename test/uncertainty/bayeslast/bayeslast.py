@@ -11,6 +11,7 @@ import logging
 from ani.kalmanfilter import KalmanFilter
 import time
 from sklearn.linear_model import BayesianRidge
+from sklearn.gaussian_process import GaussianProcessRegressor
 
 
 logging.basicConfig(filename='log.txt', level=logging.DEBUG, format="%(asctime)s  %(message)s",datefmt='%H:%M:%S')
@@ -28,7 +29,7 @@ mean, std = get_statistic(frames)
 cutoff = 3.
 environment_provider = ASEEnvironment(cutoff)
 
-n_split = 4500
+n_split = 1000
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
 test_data = AtomsData(frames[n_split:], environment_provider)
@@ -56,48 +57,71 @@ for atoms_data in test_data:
     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
     atoms_data['representations'] = representation(batch_data).squeeze(0)
 
-model = ANI(representation, elements, [15, 15], mean=mean, std=std)
-
-h = lambda batch_data: model.get_energies(batch_data)
-z = lambda batch_data: batch_data['energy']
-optimizer = KalmanFilter(model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
-epoch = 5
-min_loss = 1000
-eloss = []
-for i in range(epoch):
-    optimizer.step(train_loader)
-
-    with torch.no_grad():
-        loss = 0.
-        for i_batch, batch_data in enumerate(test_loader):
-            batch_data = {k: v.to(device) for k, v in batch_data.items()}
-            loss += get_loss(model, batch_data, weight=[1.0, 0.0, 0.0]).item()
-        loss = np.sqrt(loss / (i_batch + 1))
-
-    eloss.append(loss)
-    print('{:5d}\t{:.4f}'.format(i, loss))
-
-    if loss < min_loss:
-        min_loss = loss
-        torch.save(model.state_dict(), 'para.pt')
-
-# X_train = []
-# Y_train = []
-# for atoms_data in train_data:
-#     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
-#     X_train.append(model.get_latent_variables(batch_data).squeeze(0).detach().numpy())
-#     Y_train.append(batch_data['energy'].squeeze(0).numpy())
-# X_train = np.array(X_train)
-# Y_train = np.array(Y_train)
+# model = ANI(representation, elements, [15, 15], mean=mean, std=std)
 #
-# X_test = []
-# Y_test = []
-# for atoms_data in test_data:
-#     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
-#     X_test.append(model.get_latent_variables(batch_data).squeeze(0).detach().numpy())
-#     Y_test.append(batch_data['energy'].numpy())
-# X_test = np.array(X_test)
-# Y_test = np.array(Y_test)
+# h = lambda batch_data: model.get_energies(batch_data)
+# z = lambda batch_data: batch_data['energy']
+# optimizer = KalmanFilter(model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
+# epoch = 5
+# min_loss = 1000
+# eloss = []
+# for i in range(epoch):
+#     optimizer.step(train_loader)
+
+# model = ANI(representation, elements, [50, 50], mean=mean, std=std)
+# optimizer = torch.optim.Adam(model.parameters())
+# epoch = 100
+# min_loss = 1000
+# eloss = []
+# for i in range(epoch):
+#     for i_batch, batch_data in enumerate(train_loader):
+#         batch_data = {k: v.to(device) for k, v in batch_data.items()}
+#         loss = get_loss(model, batch_data, weight=[1.0, 0.0, 0.0])
+#         optimizer.zero_grad()
+#         loss.backward()
+#         optimizer.step()
+#     with torch.no_grad():
+#         loss = 0.
+#         for i_batch, batch_data in enumerate(test_loader):
+#             batch_data = {k: v.to(device) for k, v in batch_data.items()}
+#             loss += get_loss(model, batch_data, weight=[1.0, 0.0, 0.0]).item()
+#         loss = np.sqrt(loss / (i_batch + 1))
 #
-# model2 = BayesianRidge()
-# model2.fit(X_train, Y_train)
+#     eloss.append(loss)
+#     print('{:5d}\t{:.4f}'.format(i, loss))
+#
+#     if loss < min_loss:
+#         min_loss = loss
+#         torch.save(model.state_dict(), 'para.pt')
+#         torch.save(model, 'model.pkl')
+
+
+model = torch.load('model.pkl')
+X_train = []
+Y_train = []
+for atoms_data in train_data:
+    batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+    lv = model.get_latent_variables(batch_data).squeeze(0).detach().numpy()
+    residual = (model.get_energies(batch_data) - batch_data['energy']).detach().squeeze(0).numpy()
+    n_atoms = batch_data['n_atoms'].item()
+    X_train.append(lv / n_atoms)
+    Y_train.append(residual / n_atoms)
+X_train = np.array(X_train)
+Y_train = np.array(Y_train)
+
+X_test = []
+Y_test = []
+for atoms_data in test_data:
+    batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+    lv = model.get_latent_variables(batch_data).squeeze(0).detach().numpy()
+    residual = (model.get_energies(batch_data) - batch_data['energy']).detach().squeeze(0).numpy()
+    n_atoms = batch_data['n_atoms'].item()
+    X_test.append(lv / n_atoms)
+    Y_test.append(residual / n_atoms)
+X_test = np.array(X_test)
+Y_test = np.array(Y_test)
+
+model2 = BayesianRidge()
+model2.fit(X_train, Y_train)
+model3 = GaussianProcessRegressor()
+model3.fit(X_train, Y_train)

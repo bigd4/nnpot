@@ -2,7 +2,7 @@ from ani.environment import ASEEnvironment
 from ani.cutoff import *
 from ase.io import read
 from ani.dataloader import AtomsData, _collate_aseatoms
-from ani.model import ANI
+from ani.model import ANI, DeltaANI
 from ani.symmetry_functions import *
 from ani.utils import *
 from torch.utils.data import DataLoader
@@ -10,6 +10,7 @@ import torch
 import logging
 from ani.kalmanfilter import KalmanFilter
 import time
+from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
 
 
@@ -32,8 +33,8 @@ n_split1 = 900
 n_split2 = 1000
 train_data = AtomsData(frames[:n_split1], environment_provider)
 train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
-delta_train_data = AtomsData(frames[: n_split2], environment_provider)
-delta_train_loader = DataLoader(delta_train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
+delta_train_data = AtomsData(frames[n_split1: n_split2], environment_provider)
+delta_train_loader = DataLoader(delta_train_data, batch_size=128, shuffle=True, collate_fn=_collate_aseatoms)
 test_data = AtomsData(frames[n_split2: 1500], environment_provider)
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, collate_fn=_collate_aseatoms)
 
@@ -67,7 +68,7 @@ model = ANI(representation, elements, [15, 15], mean=mean, std=std)
 h = lambda batch_data: model.get_energies(batch_data) / batch_data['n_atoms']
 z = lambda batch_data: batch_data['energy'] / batch_data['n_atoms']
 optimizer = KalmanFilter(model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
-epoch = 5
+epoch = 10
 min_loss = 1000
 eloss = []
 for i in range(epoch):
@@ -85,44 +86,55 @@ for i in range(epoch):
         torch.save(model.state_dict(), 'para.pt')
         torch.save(model, 'model.pkl')
 
+
+model = torch.load('model.pkl')
+
+X_train = []
+Y_train = []
+n_train = []
 # model 2
-delta_model = ANI(representation, elements, [15, 15])
-h = lambda batch_data: delta_model.get_energies(batch_data) / batch_data['n_atoms']
-z = lambda batch_data: (batch_data['energy'] - model.get_energies(batch_data)) / batch_data['n_atoms']
-optimizer = KalmanFilter(delta_model.parameters(), h, z, eta_0=1e-3, eta_tau=2.)
-epoch = 5
-min_loss = 1000
-for i in range(epoch):
-    optimizer.step(delta_train_loader)
-    with torch.no_grad():
-        delta_loss = 0.
-        for i_batch, batch_data in enumerate(test_loader):
-            batch_data = {k: v.to(device) for k, v in batch_data.items()}
-            predict_delta = delta_model.get_energies(batch_data) / batch_data['n_atoms']
-            target_delta = (batch_data['energy'] - model.get_energies(batch_data)) / batch_data['n_atoms']
-            delta_loss += torch.mean((predict_delta - target_delta) ** 2).item()
-        delta_loss = np.sqrt(delta_loss / (i_batch + 1))
-
-    print('{:5d}\t{:.4f}'.format(i, delta_loss))
-
-    if delta_loss < min_loss:
-        min_loss = delta_loss
-        torch.save(delta_model.state_dict(), 'delta_para.pt')
-        torch.save(delta_model, 'delta_model.pkl')
-
-print(time.time() - t0)
-test_data = AtomsData(frames[n_split2:], environment_provider)
-predict_delta, target_delta, predict_e, target_e, n_atoms = [], [], [], [], []
-for atoms_data in test_data:
+for atoms_data in train_data:
     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
-    n = batch_data['n_atoms'].item()
-    n_atoms.append(n)
-    predict_e.append(model.get_energies(batch_data).item())
-    target_e.append(batch_data['energy'].item())
-    predict_delta.append(delta_model.get_energies(batch_data).item())
-    target_delta.append(model.get_energies(batch_data).item() - batch_data['energy'].item())
-predict_delta = np.array(predict_delta)
-target_delta = np.array(target_delta)
-predict_e = np.array(predict_e)
-target_e = np.array(target_e)
-n_atoms = np.array(n_atoms)
+    lv = model.get_latent_variables(batch_data).squeeze(0).detach().numpy()
+    residual = (model.get_energies(batch_data) - batch_data['energy']).detach().squeeze(0).numpy()
+    n_train.append(batch_data['n_atoms'].item())
+    X_train.append(lv)
+    Y_train.append(residual)
+X_train = np.array(X_train)
+Y_train = np.array(Y_train)
+n_train = np.array(n_train)
+
+X_delta = []
+Y_delta = []
+n_delta = []
+# model 2
+for atoms_data in delta_train_data:
+    batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+    lv = model.get_latent_variables(batch_data).squeeze(0).detach().numpy()
+    residual = (model.get_energies(batch_data) - batch_data['energy']).detach().squeeze(0).numpy()
+    n_delta.append(batch_data['n_atoms'].item())
+    X_delta.append(lv)
+    Y_delta.append(residual)
+X_delta = np.array(X_delta)
+Y_delta = np.array(Y_delta)
+n_delta = np.array(n_delta)
+
+dis = cdist(X_delta/n_delta.reshape(-1, 1), X_train/n_train.reshape(-1, 1))
+dis = np.mean(np.sort(dis, axis=1)[:, :10], axis=1)
+
+
+
+# X_test = []
+# Y_test = []
+# n_test = []
+# for atoms_data in test_data:
+#     batch_data = {k: v.unsqueeze(0) for k, v in atoms_data.items()}
+#     lv = model.get_latent_variables(batch_data).squeeze(0).detach().numpy()
+#     residual = (model.get_energies(batch_data) - batch_data['energy']).detach().squeeze(0).numpy()
+#     n_test.append(batch_data['n_atoms'].item())
+#     X_test.append(lv)
+#     Y_test.append(residual)
+# X_test = np.array(X_test)
+# Y_test = np.array(Y_test)
+# n_test = np.array(n_test)
+# print(time.time() - t0)
