@@ -14,7 +14,7 @@ import logging
 
 logging.basicConfig(filename='log.txt', level=logging.DEBUG, format="%(asctime)s  %(message)s",datefmt='%H:%M:%S')
 device = "cpu"
-device = 'cuda:0'
+# device = 'cuda:0'
 # read data set and get elements
 np.random.seed(1)
 frames = read('../sps_all.xyz', ':')
@@ -24,12 +24,12 @@ elements = get_elements(frames)
 mean, std = get_statistic(frames)
 
 # set cutoff and environment_provider
-cutoff = 3.
+cutoff = 3.5
 environment_provider = ASEEnvironment(cutoff)
 
 # behler
-n_radius = 22
-n_angular = 5
+n_radius = 30
+n_angular = 10
 cut_fn = CosineCutoff(cutoff)
 rss = torch.linspace(0.3, cutoff-0.3, n_radius)
 etas = 0.5 * torch.ones_like(rss) / (rss[1] - rss[0]) ** 2
@@ -44,7 +44,7 @@ representation = CombinationRepresentation(rdf, adf)
 model = DropoutANI(representation, elements, [70, 70], mean=mean, std=std, p=0.3)
 model.to(device)
 
-n_split = 4500
+n_split = 1000
 train_data = AtomsData(frames[:n_split], environment_provider)
 train_loader = DataLoader(train_data, batch_size=64, shuffle=True, collate_fn=_collate_aseatoms)
 test_data = AtomsData(frames[n_split:], environment_provider)
@@ -60,7 +60,7 @@ for atoms_data in test_data:
 
 optimizer = torch.optim.Adam(model.parameters())
 
-epoch = 100
+epoch = 500
 min_loss = 1000
 eloss = []
 for i in range(epoch):

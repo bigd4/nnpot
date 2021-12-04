@@ -88,7 +88,7 @@ for i in range(epoch):
 # model 2
 delta_model = DeltaANI(representation, elements, [15, 15])
 optimizer = torch.optim.Adam(delta_model.parameters())
-epoch = 200
+epoch = 50
 min_loss = 100000
 for i in range(epoch):
     for i_batch, batch_data in enumerate(delta_train_loader):

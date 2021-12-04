@@ -58,6 +58,17 @@ def get_array(test_data, f1, f2, f3, f4):
     return target_energies, predict_energies, predict_deltas, target_deltas
 
 
+def nnn(test_data):
+    model = torch.load('nnn/model.pkl')
+
+    f1 = lambda batch_data: model.get_energies(batch_data).item() / batch_data['n_atoms'].item()
+    f2 = lambda batch_data: batch_data['energy'].item() / batch_data['n_atoms'].item()
+    f3 = lambda batch_data: model.get_energies(batch_data, True)[1].item() / np.sqrt(batch_data['n_atoms'].item())
+    f4 = lambda batch_data: (f1(batch_data) - f2(batch_data)) * np.sqrt(batch_data['n_atoms'].item())
+
+    return get_array(test_data, f1, f2, f3, f4)
+
+
 def nndnn(test_data):
     model = torch.load('nndnn/model.pkl')
     delta_model = torch.load('nndnn/delta_model.pkl')
@@ -90,8 +101,14 @@ def dropout(test_data):
 
     f1 = lambda batch_data: model.get_energies(batch_data).item() / batch_data['n_atoms'].item()
     f2 = lambda batch_data: batch_data['energy'].item() / batch_data['n_atoms'].item()
-    f3 = lambda batch_data: model.get_energies(batch_data, True)[1].item() / np.sqrt(batch_data['n_atoms'].item())
-    f4 = lambda batch_data: (f1(batch_data) - f2(batch_data)) * np.sqrt(batch_data['n_atoms'].item())
+    # f3 = lambda batch_data: model.get_energies(batch_data, True)[1].item() / np.sqrt(batch_data['n_atoms'].item())
+    f3 = lambda batch_data: model.get_energies(batch_data, True)[1].item() / batch_data['n_atoms'].item()
+    def f4(batch_data):
+        pe = model.get_energies(batch_data, True)[0].item()
+        te = batch_data['energy'].item()
+        n = batch_data['n_atoms'].item()
+        # return (pe - te) / np.sqrt(n)
+        return (pe - te) / n
 
     return get_array(test_data, f1, f2, f3, f4)
 
@@ -157,16 +174,27 @@ device = "cpu"
 np.random.seed(1)
 frames = read('sps_all.xyz', ':')
 np.random.shuffle(frames)
-frames = frames[1000:]
 cutoff = 3.
 environment_provider = ASEEnvironment(cutoff)
-test_data = AtomsData(frames, environment_provider)
+test_data = AtomsData(frames[:1000], environment_provider)
 
-target_energies, predict_energies, predict_deltas, target_deltas = nndnn2(test_data)
+# target_energies, predict_energies, predict_deltas, target_deltas = nndnn2(test_data)
+# predicted_pi, observed_pi = get_calibration(target_deltas, predict_deltas)
+# plt.scatter(predict_deltas, target_deltas)
+# plt.figure()
+# plt.scatter(predicted_pi, observed_pi)
+
+target_energies, predict_energies, predict_deltas, target_deltas = nnn(test_data)
 predicted_pi, observed_pi = get_calibration(target_deltas, predict_deltas)
 plt.scatter(predict_deltas, target_deltas)
 plt.figure()
 plt.scatter(predicted_pi, observed_pi)
+
+# target_energies, predict_energies, predict_deltas, target_deltas = dropout(test_data)
+# predicted_pi, observed_pi = get_calibration(target_deltas, predict_deltas)
+# plt.scatter(predict_deltas, target_deltas)
+# plt.figure()
+# plt.scatter(predicted_pi, observed_pi)
 
 # target_energies, predict_energies, predict_deltas, target_deltas = GPRlast(test_data)
 # predicted_pi, observed_pi = get_calibration(target_deltas, predict_deltas)
